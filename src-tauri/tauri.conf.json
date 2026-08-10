@@ -46,7 +46,7 @@
     "updater": {
       "pubkey": "SUBSTITUA_PELA_CHAVE_PUBLICA_APOS_SETUP",
       "endpoints": [
-        "https://github.com/SEU_USUARIO/money-os/releases/latest/download/latest.json"
+        "https://github.com/wsftech/moneyos/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"
