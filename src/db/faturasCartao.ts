@@ -1,0 +1,377 @@
+import { getConta, getSaldoConta, listContas } from "./contas";
+import { getDatabase } from "./connection";
+import { createTransferencia } from "./transacoes";
+import { nowIso, withDatabase } from "./utils";
+import type {
+  ContextoVisualizacao,
+  FaturaCartaoResumo,
+  ResumoCartaoCredito,
+  StatusFaturaCartao,
+} from "../types";
+import {
+  mesFechamentoAtual,
+  mesFechamentoParaData,
+  periodoFaturaCartao,
+} from "../utils/faturaCartao";
+import { arredondarMoeda } from "../utils/format";
+
+interface FaturaRow {
+  id: number;
+  conta_id: number;
+  mes_referencia: string;
+  periodo_inicio: string;
+  periodo_fim: string;
+  vencimento: string;
+  total: number;
+  valor_pago: number | null;
+  data_pagamento: string | null;
+  status: StatusFaturaCartao;
+  transacao_pagamento_id: number | null;
+}
+
+function calcularStatusFatura(
+  row: Pick<FaturaRow, "status" | "periodo_fim" | "valor_pago" | "total">,
+  hoje: string,
+): StatusFaturaCartao {
+  if (row.status === "paga" || (row.valor_pago != null && row.valor_pago >= row.total && row.total > 0)) {
+    return "paga";
+  }
+  if (hoje > row.periodo_fim) return "fechada";
+  return "aberta";
+}
+
+async function recalcularTotalFatura(db: Awaited<ReturnType<typeof getDatabase>>, faturaId: number) {
+  const rows = await db.select<{ total: number }[]>(
+    `SELECT COALESCE(SUM(valor), 0) AS total
+     FROM transacoes
+     WHERE fatura_cartao_id = $1 AND status = 'efetivado' AND tipo = 'despesa'`,
+    [faturaId],
+  );
+  const total = rows[0]?.total ?? 0;
+  await db.execute(
+    `UPDATE faturas_cartao SET total = $1, updated_at = $2 WHERE id = $3`,
+    [total, nowIso(), faturaId],
+  );
+  return total;
+}
+
+async function ensureFaturaRecord(
+  contaId: number,
+  mesReferencia: string,
+): Promise<FaturaRow | null> {
+  const conta = await getConta(contaId);
+  if (!conta?.dia_fechamento || !conta.dia_vencimento) return null;
+
+  const { inicio, fim, vencimento } = periodoFaturaCartao(
+    mesReferencia,
+    conta.dia_fechamento,
+    conta.dia_vencimento,
+  );
+
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const existing = await db.select<FaturaRow[]>(
+      "SELECT * FROM faturas_cartao WHERE conta_id = $1 AND mes_referencia = $2",
+      [contaId, mesReferencia],
+    );
+    if (existing[0]) return existing[0];
+
+    const ts = nowIso();
+    const result = await db.execute(
+      `INSERT INTO faturas_cartao
+       (conta_id, mes_referencia, periodo_inicio, periodo_fim, vencimento, total, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 0, 'aberta', $6, $6)`,
+      [contaId, mesReferencia, inicio, fim, vencimento, ts],
+    );
+    const rows = await db.select<FaturaRow[]>("SELECT * FROM faturas_cartao WHERE id = $1", [
+      result.lastInsertId,
+    ]);
+    return rows[0] ?? null;
+  });
+}
+
+export async function sincronizarFaturaCartao(
+  contaId: number,
+  mesReferencia: string,
+): Promise<FaturaCartaoResumo | null> {
+  const fatura = await ensureFaturaRecord(contaId, mesReferencia);
+  if (!fatura) return null;
+
+  return withDatabase(async () => {
+    const db = await getDatabase();
+
+    await db.execute(
+      `UPDATE transacoes
+       SET fatura_cartao_id = $1
+       WHERE conta_id = $2
+         AND tipo = 'despesa'
+         AND status = 'efetivado'
+         AND fatura_cartao_id IS NULL
+         AND pagamento_fatura_id IS NULL
+         AND data >= $3
+         AND data <= $4`,
+      [fatura.id, contaId, fatura.periodo_inicio, fatura.periodo_fim],
+    );
+
+    const total = await recalcularTotalFatura(db, fatura.id);
+    const hoje = new Date().toISOString().slice(0, 10);
+    const status = calcularStatusFatura({ ...fatura, total }, hoje);
+
+    await db.execute(
+      `UPDATE faturas_cartao SET status = $1, updated_at = $2 WHERE id = $3`,
+      [status, nowIso(), fatura.id],
+    );
+
+    return buildFaturaResumo(fatura.id);
+  });
+}
+
+export async function sincronizarFaturasCartaoConta(contaId: number): Promise<void> {
+  const conta = await getConta(contaId);
+  if (!conta?.dia_fechamento) return;
+
+  const mesAtualRef = mesFechamentoAtual(conta.dia_fechamento);
+  const [y, m] = mesAtualRef.split("-").map(Number);
+
+  const meses: string[] = [];
+  for (let i = -2; i <= 1; i++) {
+    const d = new Date(y, m - 1 + i, 1);
+    meses.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  for (const mes of meses) {
+    await sincronizarFaturaCartao(contaId, mes);
+  }
+}
+
+async function buildFaturaResumo(faturaId: number): Promise<FaturaCartaoResumo | null> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<FaturaRow[]>("SELECT * FROM faturas_cartao WHERE id = $1", [
+      faturaId,
+    ]);
+    const fatura = rows[0];
+    if (!fatura) return null;
+
+    const conta = await getConta(fatura.conta_id);
+    const itens = await db.select<
+      { id: number; data: string; descricao: string; valor: number }[]
+    >(
+      `SELECT id, data, descricao, valor
+       FROM transacoes
+       WHERE fatura_cartao_id = $1 AND tipo = 'despesa'
+       ORDER BY data ASC, id ASC`,
+      [faturaId],
+    );
+
+    const hoje = new Date().toISOString().slice(0, 10);
+    const status = calcularStatusFatura(fatura, hoje);
+
+    return {
+      id: fatura.id,
+      conta_id: fatura.conta_id,
+      conta_nome: conta?.nome ?? "",
+      mes_referencia: fatura.mes_referencia,
+      periodo_inicio: fatura.periodo_inicio,
+      periodo_fim: fatura.periodo_fim,
+      vencimento: fatura.vencimento,
+      total: fatura.total,
+      valor_pago: fatura.valor_pago,
+      data_pagamento: fatura.data_pagamento,
+      status,
+      itens,
+    };
+  });
+}
+
+export async function getFaturaCartao(
+  contaId: number,
+  mesReferencia?: string,
+): Promise<FaturaCartaoResumo | null> {
+  const conta = await getConta(contaId);
+  if (!conta || conta.tipo !== "cartao_credito") return null;
+  if (!conta.dia_fechamento || !conta.dia_vencimento) return null;
+
+  const mes = mesReferencia ?? mesFechamentoAtual(conta.dia_fechamento);
+
+  await sincronizarFaturaCartao(contaId, mes);
+  const db = await getDatabase();
+  const rows = await db.select<FaturaRow[]>(
+    "SELECT id FROM faturas_cartao WHERE conta_id = $1 AND mes_referencia = $2",
+    [contaId, mes],
+  );
+  if (!rows[0]) return null;
+  return buildFaturaResumo(rows[0].id);
+}
+
+export async function listFaturasCartao(
+  contaId: number,
+  limite = 6,
+): Promise<FaturaCartaoResumo[]> {
+  await sincronizarFaturasCartaoConta(contaId);
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<{ id: number }[]>(
+      `SELECT id FROM faturas_cartao
+       WHERE conta_id = $1
+       ORDER BY mes_referencia DESC
+       LIMIT $2`,
+      [contaId, limite],
+    );
+    const faturas = await Promise.all(rows.map((r) => buildFaturaResumo(r.id)));
+    return faturas.filter((f): f is FaturaCartaoResumo => f != null);
+  });
+}
+
+export async function listFaturasCartaoContexto(
+  contexto?: ContextoVisualizacao,
+): Promise<FaturaCartaoResumo[]> {
+  const contas = await listContas(contexto);
+  const cartoes = contas.filter(
+    (c) => c.tipo === "cartao_credito" && c.dia_fechamento && c.dia_vencimento,
+  );
+  const faturas: FaturaCartaoResumo[] = [];
+  for (const c of cartoes) {
+    const f = await getFaturaCartao(c.id);
+    if (f && f.status !== "paga" && f.total > 0) faturas.push(f);
+  }
+  return faturas;
+}
+
+/** Faturas não pagas (para fluxo de caixa projetado). */
+export async function listFaturasPendentesContexto(
+  contexto?: ContextoVisualizacao,
+): Promise<FaturaCartaoResumo[]> {
+  const contas = await listContas(contexto);
+  const cartoes = contas.filter(
+    (c) => c.tipo === "cartao_credito" && c.dia_fechamento && c.dia_vencimento,
+  );
+  const faturas: FaturaCartaoResumo[] = [];
+  for (const c of cartoes) {
+    await sincronizarFaturasCartaoConta(c.id);
+    const lista = await listFaturasCartao(c.id, 12);
+    for (const f of lista) {
+      const pendente = f.total - (f.valor_pago ?? 0);
+      if (f.status !== "paga" && pendente > 0) faturas.push(f);
+    }
+  }
+  return faturas;
+}
+
+export async function vincularCompraAFatura(
+  transacaoId: number,
+  contaId: number,
+  data: string,
+): Promise<void> {
+  const conta = await getConta(contaId);
+  if (!conta?.dia_fechamento || conta.tipo !== "cartao_credito") return;
+
+  const mesRef = mesFechamentoParaData(data, conta.dia_fechamento);
+  await sincronizarFaturaCartao(contaId, mesRef);
+
+  const db = await getDatabase();
+  const rows = await db.select<{ id: number }[]>(
+    "SELECT id FROM faturas_cartao WHERE conta_id = $1 AND mes_referencia = $2",
+    [contaId, mesRef],
+  );
+  if (!rows[0]) return;
+
+  await db.execute("UPDATE transacoes SET fatura_cartao_id = $1 WHERE id = $2", [
+    rows[0].id,
+    transacaoId,
+  ]);
+  await recalcularTotalFatura(db, rows[0].id);
+}
+
+export interface PagarFaturaInput {
+  faturaId: number;
+  contaOrigemId: number;
+  data: string;
+  valor?: number;
+}
+
+export async function pagarFaturaCartao(input: PagarFaturaInput): Promise<FaturaCartaoResumo> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<FaturaRow[]>("SELECT * FROM faturas_cartao WHERE id = $1", [
+      input.faturaId,
+    ]);
+    const fatura = rows[0];
+    if (!fatura) throw new Error("Fatura não encontrada");
+    if (fatura.status === "paga") throw new Error("Fatura já está paga.");
+
+    const cartao = await getConta(fatura.conta_id);
+    const origem = await getConta(input.contaOrigemId);
+    if (!cartao || cartao.tipo !== "cartao_credito") throw new Error("Conta de cartão inválida.");
+    if (!origem || origem.tipo === "cartao_credito") {
+      throw new Error("Selecione uma conta bancária para pagar a fatura.");
+    }
+    if (origem.contexto !== cartao.contexto) {
+      throw new Error("Conta de origem deve ser do mesmo contexto do cartão.");
+    }
+
+    const valorPagar = arredondarMoeda(
+      input.valor ?? fatura.total - (fatura.valor_pago ?? 0),
+    );
+    if (valorPagar <= 0) throw new Error("Não há valor pendente nesta fatura.");
+
+    const { saida, entrada } = await createTransferencia({
+      descricao: `Pagamento fatura ${cartao.nome} · ${fatura.mes_referencia}`,
+      valor: valorPagar,
+      data: input.data,
+      conta_origem_id: input.contaOrigemId,
+      conta_destino_id: fatura.conta_id,
+      observacoes: "Pagamento de fatura de cartão",
+    });
+
+    await db.execute(
+      `UPDATE transacoes SET pagamento_fatura_id = $1 WHERE id = $2 OR id = $3`,
+      [fatura.id, saida.id, entrada.id],
+    );
+
+    const novoPago = arredondarMoeda((fatura.valor_pago ?? 0) + valorPagar);
+    const paga = novoPago >= fatura.total;
+    const status: StatusFaturaCartao = paga ? "paga" : "fechada";
+
+    await db.execute(
+      `UPDATE faturas_cartao
+       SET valor_pago = $1, data_pagamento = $2, status = $3,
+           transacao_pagamento_id = $4, updated_at = $5
+       WHERE id = $6`,
+      [novoPago, input.data, status, entrada.id, nowIso(), fatura.id],
+    );
+
+    const resumo = await buildFaturaResumo(fatura.id);
+    if (!resumo) throw new Error("Falha ao atualizar fatura");
+    return resumo;
+  });
+}
+
+export async function getResumoCartaoCredito(contaId: number): Promise<ResumoCartaoCredito | null> {
+  const conta = await getConta(contaId);
+  if (!conta || conta.tipo !== "cartao_credito") return null;
+
+  await sincronizarFaturasCartaoConta(contaId);
+
+  const [saldo, faturaAtual] = await Promise.all([
+    getSaldoConta(contaId),
+    conta.dia_fechamento && conta.dia_vencimento
+      ? getFaturaCartao(contaId)
+      : Promise.resolve(null),
+  ]);
+
+  const totalEmAberto = arredondarMoeda(Math.max(0, -saldo));
+  const limite = conta.limite_credito;
+  const limiteDisponivel =
+    limite != null && limite > 0 ? arredondarMoeda(Math.max(0, limite - totalEmAberto)) : null;
+
+  return {
+    conta_id: conta.id,
+    conta_nome: conta.nome,
+    limite_credito: limite,
+    total_em_aberto: totalEmAberto,
+    limite_disponivel: limiteDisponivel,
+    fatura_atual: faturaAtual,
+    saldo_conta: saldo,
+  };
+}

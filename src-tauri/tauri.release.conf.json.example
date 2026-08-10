@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "plugins": {
+    "updater": {
+      "pubkey": "COLE_AQUI_O_CONTEUDO_COMPLETO_DE_moneyos.key.pub",
+      "endpoints": [
+        "https://github.com/SEU_USUARIO/money-os/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-app-bg: #121212;
+  --color-app-panel: #1c1c1e;
+  --color-app-card: #252528;
+  --color-brand-income: #6366f1;
+  --color-brand-expense: #ff2d55;
+  --color-brand-accent: #bf5af2;
+}
+
+@layer base {
+  body {
+    @apply m-0 min-h-screen font-sans text-slate-200 antialiased;
+    background:
+      radial-gradient(ellipse 70% 45% at 10% -10%, rgb(99 102 241 / 0.12), transparent),
+      radial-gradient(ellipse 50% 40% at 95% 5%, rgb(255 45 85 / 0.08), transparent),
+      linear-gradient(180deg, #121212 0%, #161618 50%, #121212 100%);
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+
+  select option {
+    @apply bg-[#252528] text-slate-200;
+  }
+}
+
+@layer components {
+  .app-card {
+    @apply rounded-2xl border border-white/[0.06] bg-[#252528]/95 shadow-xl shadow-black/40 backdrop-blur-md;
+  }
+
+  .app-kpi-card {
+    @apply rounded-2xl border border-white/[0.06] bg-[#252528] p-5 shadow-lg shadow-black/30;
+  }
+
+  .app-table-head {
+    @apply bg-white/5 text-left text-slate-400;
+  }
+
+  .app-table-row {
+    @apply transition-colors hover:bg-white/5;
+  }
+
+  .app-input {
+    @apply w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 outline-none transition-all placeholder:text-slate-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20;
+  }
+
+  .app-label {
+    @apply block text-sm font-medium text-slate-300;
+  }
+
+  .app-muted-box {
+    @apply rounded-xl border border-white/10 bg-white/5 text-slate-400;
+  }
+
+  .app-stat-indigo {
+    @apply border border-indigo-500/25 bg-gradient-to-br from-indigo-500/20 to-indigo-600/5 text-indigo-200 shadow-lg shadow-indigo-500/15;
+  }
+
+  .app-stat-income {
+    @apply border border-indigo-500/20 bg-[#252528] text-white;
+  }
+
+  .app-stat-expense {
+    @apply border border-[#ff2d55]/25 bg-[#252528] text-white;
+  }
+
+  .app-stat-green {
+    @apply border border-indigo-500/20 bg-gradient-to-br from-indigo-500/15 to-violet-600/10 text-indigo-200 shadow-lg shadow-indigo-500/10;
+  }
+
+  .app-stat-red {
+    @apply border border-[#ff2d55]/25 bg-gradient-to-br from-[#ff2d55]/15 to-pink-600/10 text-pink-200 shadow-lg shadow-[#ff2d55]/10;
+  }
+
+  .app-stat-amber {
+    @apply border border-amber-500/20 bg-gradient-to-br from-amber-500/15 to-orange-500/10 text-amber-200 shadow-lg shadow-amber-500/10;
+  }
+
+  .app-nav-active {
+    @apply bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/30;
+  }
+}
