@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAtualizacao } from "../components/AtualizacaoProvider";
 import { Button } from "../components/ui/Button";
 import { ErrorAlert } from "../components/ui/Feedback";
+import { COPYRIGHT_COM_CNPJ, EMPRESA } from "../constants/empresa";
 import {
   obterVersaoApp,
   verificarAtualizacao,
@@ -51,6 +52,21 @@ export function ConfiguracoesSobrePage() {
           Versão instalada:{" "}
           <strong className="text-slate-900">{versao ?? "—"}</strong>
         </p>
+      </section>
+
+      <section className="app-card p-5">
+        <h2 className="font-semibold text-slate-900">Empresa</h2>
+        <dl className="mt-3 space-y-2 text-sm">
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-slate-500">Razão social</dt>
+            <dd className="font-medium text-slate-800">{EMPRESA.razaoSocial}</dd>
+          </div>
+          <div className="flex flex-wrap gap-x-2">
+            <dt className="text-slate-500">CNPJ</dt>
+            <dd className="font-medium text-slate-800">{EMPRESA.cnpj}</dd>
+          </div>
+        </dl>
+        <p className="mt-4 text-xs text-slate-500">{COPYRIGHT_COM_CNPJ}</p>
       </section>
 
       <section className="app-card p-5">

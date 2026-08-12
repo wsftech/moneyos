@@ -7,6 +7,7 @@ import { ConfiguracoesRegrasPage } from "./pages/ConfiguracoesRegrasPage";
 import { ConfiguracoesTagsPage } from "./pages/ConfiguracoesTagsPage";
 import { ConfiguracoesLayout, ConfiguracoesPerfilPage } from "./components/ConfiguracoesLayout";
 import { Layout } from "./components/Layout";
+import { AprenderPage } from "./pages/AprenderPage";
 import { CategoriasPage } from "./pages/CategoriasPage";
 import { ContasPage } from "./pages/ContasPage";
 import { ContasPagarReceberPage } from "./pages/ContasPagarReceberPage";
@@ -24,6 +25,7 @@ function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<DashboardPage />} />
+          <Route path="aprender" element={<AprenderPage />} />
           <Route path="transacoes" element={<TransacoesPage />} />
           <Route path="contas" element={<ContasPage />} />
           <Route path="contas-pagar-receber" element={<ContasPagarReceberPage />} />

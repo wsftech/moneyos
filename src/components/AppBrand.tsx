@@ -88,7 +88,6 @@ export function PerfilForm() {
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
       {error && <ErrorAlert message={error} />}
       <div className="flex items-center gap-3 rounded-xl bg-app-sidebar p-3">
-        <AppLogo variant="icon" className="h-12 w-12" />
         <AppLogo variant="logo" className="h-8 w-auto max-w-[220px]" />
       </div>
       <p className="text-xs text-slate-500">

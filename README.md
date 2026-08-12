@@ -120,3 +120,7 @@ Exemplo só de bump de versão (sem build):
 ```powershell
 node scripts/set-version.cjs 0.1.3
 ```
+
+---
+
+Copyright © 2026 WSF tecnologia Ltda · CNPJ 54.492.026/0001-23

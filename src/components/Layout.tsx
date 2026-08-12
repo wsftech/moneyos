@@ -52,7 +52,10 @@ const NAV_GROUPS = [
   {
     id: "sistema",
     label: "Sistema",
-    items: [{ to: "/configuracoes", label: "Configurações", icon: "configuracoes" as const }],
+    items: [
+      { to: "/aprender", label: "Aprender", icon: "aprender" as const },
+      { to: "/configuracoes", label: "Configurações", icon: "configuracoes" as const },
+    ],
   },
 ] as const;
 

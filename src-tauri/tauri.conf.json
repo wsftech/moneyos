@@ -44,8 +44,8 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "shortDescription": "Controle financeiro pessoal e empresarial",
-    "longDescription": "WSF Money — gestão de contas, transações, orçamentos, metas e relatórios financeiros.",
-    "copyright": "Copyright © 2026 WSF tecnologia Ltda",
+    "longDescription": "WSF Money — gestão de contas, transações, orçamentos, metas e relatórios financeiros. Copyright © 2026 WSF tecnologia Ltda. CNPJ 54.492.026/0001-23.",
+    "copyright": "Copyright © 2026 WSF tecnologia Ltda — CNPJ 54.492.026/0001-23",
     "publisher": "WSF tecnologia Ltda",
     "category": "Finance",
     "icon": [
