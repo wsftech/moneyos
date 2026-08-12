@@ -159,8 +159,8 @@ export async function sincronizarTransacoesRecorrentes(
   for (const rec of recorrentes.filter((r) => r.ativo)) {
     await withDatabase(async () => {
       const db = await getDatabase();
-      const exists = await db.select<{ id: number }[]>(
-        "SELECT id FROM transacao_recorrente_lancamentos WHERE recorrente_id = $1 AND mes_referencia = $2",
+      const exists = await db.select<{ recorrente_id: number }[]>(
+        "SELECT recorrente_id FROM transacao_recorrente_lancamentos WHERE recorrente_id = $1 AND mes_referencia = $2",
         [rec.id, mesReferencia],
       );
       if (exists.length > 0) return;
