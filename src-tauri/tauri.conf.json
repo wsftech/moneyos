@@ -18,7 +18,7 @@
         "height": 800,
         "minWidth": 960,
         "minHeight": 600,
-        "visible": false,
+        "visible": true,
         "center": true
       },
       {
@@ -32,7 +32,8 @@
         "minimizable": false,
         "decorations": false,
         "center": true,
-        "visible": true
+        "visible": true,
+        "alwaysOnTop": true
       }
     ],
     "security": {
@@ -68,7 +69,8 @@
         "https://github.com/wsftech/moneyos/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "passive"
+        "installMode": "basicUi",
+        "installerArgs": ["/P"]
       }
     }
   }

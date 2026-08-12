@@ -7,7 +7,8 @@
         "https://github.com/SEU_USUARIO/money-os/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "passive"
+        "installMode": "basicUi",
+        "installerArgs": ["/P"]
       }
     }
   }

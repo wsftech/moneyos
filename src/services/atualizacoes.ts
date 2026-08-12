@@ -129,7 +129,8 @@ export async function baixarEInstalarAtualizacao(
 
   await update.install();
 
-  // No Windows o plugin encerra o processo ao lançar o NSIS (/P /R).
+  // No Windows o plugin encerra o processo ao lançar o NSIS (/P).
+  // O relaunch fica a cargo do hook POSTINSTALL (caminho com espaços).
   // Não chamar relaunch() — isso mataria o instalador ou reabriria a versão antiga.
   if (!isWindows()) {
     onProgresso?.({ fase: "reiniciando" });
