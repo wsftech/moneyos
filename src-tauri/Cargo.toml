@@ -1,6 +1,6 @@
 [package]
 name = "financas"
-version = "0.1.7"
+version = "0.1.8"
 description = "Aplicacao desktop de controle financeiro pessoal e empresarial"
 authors = ["you"]
 edition = "2021"
