@@ -57,7 +57,8 @@ export function ConfiguracoesSobrePage() {
         <h2 className="font-semibold text-slate-900">Atualizações</h2>
         <p className="mt-2 text-sm text-slate-500">
           O app verifica novas versões automaticamente ao iniciar. Você também pode verificar
-          manualmente aqui. Ao instalar, um progresso é exibido e o aplicativo reinicia sozinho.
+          manualmente aqui. Ao instalar, o app fecha, o instalador aplica a versão e o WSF Money
+          reabre sozinho. Se isso não acontecer, instale pelo GitHub Releases.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -73,6 +74,14 @@ export function ConfiguracoesSobrePage() {
               Instalar v{status.versao}
             </Button>
           )}
+          <a
+            href="https://github.com/wsftech/moneyos/releases/latest"
+            className="inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium text-teal-800 hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Baixar instalador
+          </a>
         </div>
 
         {status?.tipo === "atualizado" && (

@@ -1,7 +1,11 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { check, type DownloadEvent } from "@tauri-apps/plugin-updater";
 import { getVersion } from "@tauri-apps/api/app";
+
+export const URL_RELEASES =
+  "https://github.com/wsftech/moneyos/releases/latest";
 
 export type StatusAtualizacao =
   | { tipo: "indisponivel" }
@@ -120,18 +124,22 @@ export async function baixarEInstalarAtualizacao(
   await update.download(onDownloadEvent);
 
   onProgresso?.({ fase: "instalando" });
-  // Tempo para o modal pintar "Instalando…" / aviso de UAC.
+  // Tempo para o modal pintar "Instalando…".
   await new Promise((r) => setTimeout(r, 500));
 
   await update.install();
 
-  // No Windows o app já deve ter sido encerrado pelo instalador.
-  // Em outros SOs precisamos reiniciar manualmente.
+  // No Windows o plugin encerra o processo ao lançar o NSIS (/P /R).
+  // Não chamar relaunch() — isso mataria o instalador ou reabriria a versão antiga.
   if (!isWindows()) {
     onProgresso?.({ fase: "reiniciando" });
     await new Promise((r) => setTimeout(r, 400));
     await relaunch();
   }
+}
+
+export async function abrirInstaladorManual(): Promise<void> {
+  await openUrl(URL_RELEASES);
 }
 
 export function chaveDismissAtualizacao(versao: string): string {

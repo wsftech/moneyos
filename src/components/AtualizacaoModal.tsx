@@ -1,6 +1,7 @@
 import { Button } from "./ui/Button";
 import { Modal } from "./ui/Modal";
 import {
+  abrirInstaladorManual,
   formatBytes,
   percentualProgresso,
   type ProgressoAtualizacao,
@@ -43,8 +44,8 @@ export function AtualizacaoModal({
       {modo === "disponivel" && (
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
-            Uma nova versão está pronta. O download acontece neste modal; em seguida o instalador do
-            Windows pode pedir permissão de administrador. O app fecha e deve reabrir sozinho ao
+            Uma nova versão está pronta. O download acontece neste modal; em seguida o app fecha e
+            uma barra de progresso do instalador deve aparecer. O WSF Money reabre sozinho ao
             concluir.
           </p>
           {notas && (
@@ -53,7 +54,14 @@ export function AtualizacaoModal({
               <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{notas}</p>
             </div>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void abrirInstaladorManual()}
+            >
+              Baixar instalador
+            </Button>
             <Button type="button" variant="secondary" onClick={onDepois}>
               Depois
             </Button>
@@ -70,7 +78,7 @@ export function AtualizacaoModal({
           <p className="text-xs text-slate-500">
             {progresso.fase === "baixando"
               ? "Baixando a atualização. O app permanece aberto nesta etapa."
-              : "Instalando… Se o Windows pedir permissão, confirme. O aplicativo será fechado e deve reabrir ao final. Se não reabrir, use o atalho no menu Iniciar."}
+              : "Instalando… O aplicativo será fechado. Se uma barra de progresso aparecer, aguarde. Se o app não reabrir, use o atalho no menu Iniciar."}
           </p>
         </div>
       )}
@@ -78,7 +86,14 @@ export function AtualizacaoModal({
       {modo === "erro" && (
         <div className="space-y-4">
           <p className="text-sm text-rose-700">{erro ?? "Não foi possível concluir a atualização."}</p>
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void abrirInstaladorManual()}
+            >
+              Baixar instalador
+            </Button>
             <Button type="button" variant="secondary" onClick={onFechar}>
               Fechar
             </Button>

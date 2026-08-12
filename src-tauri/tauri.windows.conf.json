@@ -6,7 +6,7 @@
       "nsis": {
         "languages": ["PortugueseBR", "English"],
         "displayLanguageSelector": false,
-        "installMode": "both",
+        "installMode": "currentUser",
         "startMenuFolder": "WSF Money"
       }
     }
