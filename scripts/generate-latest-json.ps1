@@ -55,9 +55,10 @@ if (Test-Path $sigCandidate) {
 
 $signature = (Get-Content $sigFile.FullName -Raw).Trim()
 $baseUrl = $BaseUrl.TrimEnd("/")
-# Encode spaces/special chars so the updater can download the asset.
-$fileNameEncoded = [Uri]::EscapeDataString($setupExe.Name).Replace("%2E", ".")
-$url = "$baseUrl/$fileNameEncoded"
+# GitHub Releases troca espaços por "." no nome do asset no upload via `gh`.
+# Use o nome remoto esperado (não EscapeDataString com %20, que gera 404).
+$remoteName = ($setupExe.Name -replace ' +', '.')
+$url = "$baseUrl/$remoteName"
 
 $manifest = [ordered]@{
   version  = $Version

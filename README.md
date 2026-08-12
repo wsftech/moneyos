@@ -95,6 +95,8 @@ Artefatos gerados:
 - Instalador: `src-tauri\target\release\bundle\nsis\*-setup.exe` (+ `.sig`)
 - Manifesto: `latest.json` na raiz do projeto
 
+> **Atenção:** o `gh` sobe o instalador como `WSF.Money_...` (ponto no lugar do espaço). O script `generate-latest-json.ps1` já gera a URL com esse nome. Se o download der **404**, abra o `latest.json` e confira se a URL usa `WSF.Money_` e não `WSF%20Money_`.
+
 Publique no GitHub:
 
 ```powershell

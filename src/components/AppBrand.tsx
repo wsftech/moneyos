@@ -5,19 +5,23 @@ import { Input } from "./ui/FormFields";
 import { getNomeUsuario, setNomeUsuario } from "../db/appConfig";
 import { getErrorMessage } from "../db/utils";
 
+/** Marca quadrada (`icon.svg`) ou wordmark (`logo.svg`, ideal em fundo escuro). */
 export function AppLogo({
+  variant = "icon",
   className = "h-10 w-10",
   title,
 }: {
+  variant?: "icon" | "logo";
   className?: string;
   title?: string;
 }) {
+  const src = variant === "logo" ? "/logo.svg" : "/icon.svg";
   return (
     <img
-      src="/logo.png"
+      src={src}
       alt="WSF Money"
       title={title}
-      className={`shrink-0 border-none object-cover ${className}`}
+      className={`shrink-0 border-none object-contain ${className}`}
       draggable={false}
     />
   );
@@ -83,13 +87,13 @@ export function PerfilForm() {
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
       {error && <ErrorAlert message={error} />}
-      <div className="flex items-center gap-3">
-        <AppLogo className="h-14 w-14" />
-        <div>
-          <p className="font-semibold text-slate-900">WSF Money</p>
-          <p className="text-xs text-slate-500">Logo e nome exibidos no menu lateral</p>
-        </div>
+      <div className="flex items-center gap-3 rounded-xl bg-app-sidebar p-3">
+        <AppLogo variant="icon" className="h-12 w-12" />
+        <AppLogo variant="logo" className="h-8 w-auto max-w-[220px]" />
       </div>
+      <p className="text-xs text-slate-500">
+        Ícone e logo exibidos no menu lateral (o wordmark usa fundo escuro).
+      </p>
       <Input
         label="Seu nome"
         value={nome}

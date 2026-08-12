@@ -187,13 +187,14 @@ export function Layout() {
         }`}
       >
         <div className={`border-b border-white/10 ${expanded ? "px-4 py-5" : "px-2 py-4"}`}>
-          <div className={`flex items-center ${expanded ? "gap-3" : "justify-center"}`}>
-            <AppLogo className="h-10 w-10" title={!expanded ? "WSF Money" : undefined} />
-            {expanded && (
-              <p className="truncate text-base font-bold tracking-tight text-white">WSF Money</p>
+          <div className={`flex items-center ${expanded ? "" : "justify-center"}`}>
+            {expanded ? (
+              <AppLogo variant="logo" className="h-8 w-auto max-w-full" title="WSF Money" />
+            ) : (
+              <AppLogo variant="icon" className="h-10 w-10" title="WSF Money" />
             )}
           </div>
-          {!expanded && <span className="sr-only">WSF Money</span>}
+          <span className="sr-only">WSF Money</span>
         </div>
 
         <nav className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-2">
