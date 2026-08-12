@@ -43,8 +43,9 @@ export function AtualizacaoModal({
       {modo === "disponivel" && (
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
-            Uma nova versão está pronta. A instalação leva alguns instantes; o app será reiniciado
-            automaticamente ao concluir.
+            Uma nova versão está pronta. O download acontece neste modal; em seguida o instalador do
+            Windows pode pedir permissão de administrador. O app fecha e deve reabrir sozinho ao
+            concluir.
           </p>
           {notas && (
             <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -57,7 +58,7 @@ export function AtualizacaoModal({
               Depois
             </Button>
             <Button type="button" onClick={onInstalar}>
-              Instalar e reiniciar
+              Baixar e instalar
             </Button>
           </div>
         </div>
@@ -67,7 +68,9 @@ export function AtualizacaoModal({
         <div className="space-y-4">
           <ProgressoVisual progresso={progresso} pct={pct} />
           <p className="text-xs text-slate-500">
-            Não feche o aplicativo. Ao finalizar a instalação, o WSF Money abrirá de novo sozinho.
+            {progresso.fase === "baixando"
+              ? "Baixando a atualização. O app permanece aberto nesta etapa."
+              : "Instalando… Se o Windows pedir permissão, confirme. O aplicativo será fechado e deve reabrir ao final. Se não reabrir, use o atalho no menu Iniciar."}
           </p>
         </div>
       )}

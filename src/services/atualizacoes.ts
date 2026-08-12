@@ -46,6 +46,10 @@ export function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isWindows(): boolean {
+  return typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent);
+}
+
 export async function obterVersaoApp(): Promise<string | null> {
   if (!isTauri()) return null;
   try {
@@ -75,6 +79,10 @@ export async function verificarAtualizacao(): Promise<StatusAtualizacao> {
   }
 }
 
+/**
+ * Baixa a atualização com progresso e só então dispara o instalador.
+ * No Windows o processo é encerrado pelo updater/NSIS; o instalador deve reabrir o app.
+ */
 export async function baixarEInstalarAtualizacao(
   onProgresso?: (progresso: ProgressoAtualizacao) => void,
 ): Promise<void> {
@@ -92,7 +100,7 @@ export async function baixarEInstalarAtualizacao(
   let baixado = 0;
   let total: number | undefined;
 
-  await update.downloadAndInstall((event: DownloadEvent) => {
+  const onDownloadEvent = (event: DownloadEvent) => {
     switch (event.event) {
       case "Started":
         total = event.data.contentLength ?? undefined;
@@ -104,15 +112,26 @@ export async function baixarEInstalarAtualizacao(
         onProgresso?.({ fase: "baixando", baixado, total });
         break;
       case "Finished":
-        onProgresso?.({ fase: "instalando" });
         break;
     }
-  });
+  };
 
-  // Dá tempo do UI pintar "Reiniciando…" antes do processo sair.
-  onProgresso?.({ fase: "reiniciando" });
-  await new Promise((r) => setTimeout(r, 600));
-  await relaunch();
+  // Download completo antes de instalar — no Windows o install() mata o processo.
+  await update.download(onDownloadEvent);
+
+  onProgresso?.({ fase: "instalando" });
+  // Tempo para o modal pintar "Instalando…" / aviso de UAC.
+  await new Promise((r) => setTimeout(r, 500));
+
+  await update.install();
+
+  // No Windows o app já deve ter sido encerrado pelo instalador.
+  // Em outros SOs precisamos reiniciar manualmente.
+  if (!isWindows()) {
+    onProgresso?.({ fase: "reiniciando" });
+    await new Promise((r) => setTimeout(r, 400));
+    await relaunch();
+  }
 }
 
 export function chaveDismissAtualizacao(versao: string): string {
