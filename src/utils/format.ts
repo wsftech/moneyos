@@ -75,3 +75,18 @@ export function mesesAnteriores(quantidade: number): string[] {
   }
   return result;
 }
+
+/** Meses ao redor de uma referência (ex.: 2 anteriores + atual + 3 seguintes). */
+export function mesesAoRedor(
+  mesReferencia: string,
+  anteriores: number,
+  seguintes: number,
+): string[] {
+  const [ano, mes] = mesReferencia.split("-").map(Number);
+  const result: string[] = [];
+  for (let i = -anteriores; i <= seguintes; i++) {
+    const d = new Date(ano, mes - 1 + i, 1);
+    result.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return result;
+}

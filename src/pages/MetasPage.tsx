@@ -97,7 +97,7 @@ export function MetasPage() {
               <div key={meta.id} className="app-card p-5" style={{ borderTopColor: meta.cor, borderTopWidth: 3 }}>
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="font-semibold text-slate-100">{meta.nome}</h3>
+                    <h3 className="font-semibold text-slate-900">{meta.nome}</h3>
                     {meta.prazo && (
                       <p className="text-xs text-slate-500">Prazo: {formatDate(meta.prazo)}</p>
                     )}
@@ -110,9 +110,9 @@ export function MetasPage() {
                 <p className="text-sm text-slate-400">
                   {formatCurrency(meta.valor_atual_efetivo)} de {formatCurrency(meta.valor_alvo)}
                 </p>
-                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
+                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
                   <div
-                    className={`h-full rounded-full transition-all ${concluida ? "bg-gradient-to-r from-emerald-400 to-cyan-500" : "bg-gradient-to-r from-indigo-500 to-violet-500"}`}
+                    className={`h-full rounded-full transition-all ${concluida ? "bg-gradient-to-r from-emerald-400 to-teal-500" : "bg-gradient-to-r from-teal-500 to-teal-700"}`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
@@ -130,7 +130,7 @@ export function MetasPage() {
                   </Button>
                   <Button
                     variant="ghost"
-                    className="text-rose-400"
+                    className="text-rose-600"
                     onClick={() => void handleDelete(meta.id)}
                   >
                     Excluir
@@ -279,14 +279,14 @@ function MetaModal({
         />
         <Input label="Prazo (opcional)" type="date" value={prazo} onChange={(e) => setPrazo(e.target.value)} />
         <div>
-          <p className="mb-2 text-sm font-medium text-slate-300">Cor</p>
+          <p className="mb-2 text-sm font-medium text-slate-600">Cor</p>
           <div className="flex gap-2">
             {CORES.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => setCor(c)}
-                className={`h-8 w-8 rounded-full border-2 ${cor === c ? "border-white" : "border-transparent"}`}
+                className={`h-8 w-8 rounded-full border-2 ring-offset-2 ${cor === c ? "border-slate-900 ring-2 ring-slate-900/30" : "border-transparent"}`}
                 style={{ backgroundColor: c }}
               />
             ))}

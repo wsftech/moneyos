@@ -1,20 +1,19 @@
 import { useEffect, useState } from "react";
+import { useAtualizacao } from "../components/AtualizacaoProvider";
 import { Button } from "../components/ui/Button";
 import { ErrorAlert } from "../components/ui/Feedback";
 import {
-  baixarEInstalarAtualizacao,
   obterVersaoApp,
   verificarAtualizacao,
-  type ProgressoAtualizacao,
   type StatusAtualizacao,
 } from "../services/atualizacoes";
 
 export function ConfiguracoesSobrePage() {
+  const { instalarAtualizacao } = useAtualizacao();
   const [versao, setVersao] = useState<string | null>(null);
   const [status, setStatus] = useState<StatusAtualizacao | null>(null);
-  const [progresso, setProgresso] = useState<ProgressoAtualizacao>({ fase: "idle" });
   const [verificando, setVerificando] = useState(false);
-  const [instalando, setInstalando] = useState(false);
+  const [iniciandoInstall, setIniciandoInstall] = useState(false);
 
   useEffect(() => {
     void obterVersaoApp().then(setVersao);
@@ -32,73 +31,52 @@ export function ConfiguracoesSobrePage() {
   }
 
   async function handleInstalar() {
-    setInstalando(true);
-    setProgresso({ fase: "baixando", baixado: 0 });
+    if (status?.tipo !== "disponivel") return;
+    setIniciandoInstall(true);
     try {
-      await baixarEInstalarAtualizacao(setProgresso);
-    } catch (err) {
-      setStatus({
-        tipo: "erro",
-        mensagem: err instanceof Error ? err.message : String(err),
-      });
-      setProgresso({ fase: "idle" });
+      await instalarAtualizacao(status.versao, status.notas);
     } finally {
-      setInstalando(false);
+      setIniciandoInstall(false);
     }
   }
-
-  const progressoLabel =
-    progresso.fase === "baixando"
-      ? progresso.total
-        ? `Baixando… ${Math.round((progresso.baixado / progresso.total) * 100)}%`
-        : "Baixando atualização…"
-      : progresso.fase === "instalando"
-        ? "Instalando…"
-        : progresso.fase === "concluido"
-          ? "Reiniciando…"
-          : null;
 
   return (
     <div className="space-y-6">
       <section className="app-card p-5">
-        <h2 className="font-semibold text-white">Sobre o Money OS</h2>
-        <p className="mt-2 text-sm text-slate-400">
+        <h2 className="font-semibold text-slate-900">Sobre o WSF Money</h2>
+        <p className="mt-2 text-sm text-slate-500">
           Controle financeiro pessoal e empresarial — contas, transações, orçamentos e relatórios.
         </p>
-        <p className="mt-3 text-sm text-slate-300">
+        <p className="mt-3 text-sm text-slate-600">
           Versão instalada:{" "}
-          <strong className="text-white">{versao ?? "—"}</strong>
+          <strong className="text-slate-900">{versao ?? "—"}</strong>
         </p>
       </section>
 
       <section className="app-card p-5">
-        <h2 className="font-semibold text-white">Atualizações</h2>
-        <p className="mt-2 text-sm text-slate-400">
-          O app verifica novas versões automaticamente ao iniciar. Você também pode verificar manualmente
-          aqui.
+        <h2 className="font-semibold text-slate-900">Atualizações</h2>
+        <p className="mt-2 text-sm text-slate-500">
+          O app verifica novas versões automaticamente ao iniciar. Você também pode verificar
+          manualmente aqui. Ao instalar, um progresso é exibido e o aplicativo reinicia sozinho.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             variant="secondary"
             onClick={() => void handleVerificar()}
-            disabled={verificando || instalando}
+            disabled={verificando || iniciandoInstall}
           >
             {verificando ? "Verificando…" : "Verificar atualizações"}
           </Button>
           {status?.tipo === "disponivel" && (
-            <Button onClick={() => void handleInstalar()} disabled={instalando}>
+            <Button onClick={() => void handleInstalar()} disabled={iniciandoInstall}>
               Instalar v{status.versao}
             </Button>
           )}
         </div>
 
-        {progressoLabel && (
-          <p className="mt-3 text-sm text-indigo-300">{progressoLabel}</p>
-        )}
-
         {status?.tipo === "atualizado" && (
-          <p className="mt-3 text-sm text-emerald-400">Você está na versão mais recente.</p>
+          <p className="mt-3 text-sm text-emerald-600">Você está na versão mais recente.</p>
         )}
         {status?.tipo === "indisponivel" && (
           <p className="mt-3 text-sm text-slate-500">
@@ -106,18 +84,18 @@ export function ConfiguracoesSobrePage() {
           </p>
         )}
         {status?.tipo === "disponivel" && status.notas && (
-          <div className="mt-3 rounded-xl border border-white/[0.06] bg-white/[0.03] p-3">
-            <p className="text-xs font-medium text-slate-400">Novidades</p>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-slate-300">{status.notas}</p>
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-medium text-slate-500">Novidades</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{status.notas}</p>
           </div>
         )}
         {status?.tipo === "sem_publicacao" && (
-          <p className="mt-3 text-sm text-slate-400">
-            Nenhuma release publicada no servidor de atualizações ainda. Quando houver uma nova versão
-            em{" "}
+          <p className="mt-3 text-sm text-slate-500">
+            Nenhuma release publicada no servidor de atualizações ainda. Quando houver uma nova
+            versão em{" "}
             <a
               href="https://github.com/wsftech/moneyos/releases"
-              className="text-indigo-400 hover:underline"
+              className="text-teal-700 hover:underline"
               target="_blank"
               rel="noreferrer"
             >
@@ -134,10 +112,10 @@ export function ConfiguracoesSobrePage() {
       </section>
 
       <section className="app-card p-5">
-        <h2 className="font-semibold text-white">Instalação no Windows</h2>
-        <p className="mt-2 text-sm text-slate-400">
+        <h2 className="font-semibold text-slate-900">Instalação no Windows</h2>
+        <p className="mt-2 text-sm text-slate-500">
           Distribua o instalador gerado em{" "}
-          <code className="text-slate-300">src-tauri/target/release/bundle/nsis/</code>. As
+          <code className="text-slate-600">src-tauri/target/release/bundle/nsis/</code>. As
           atualizações futuras serão baixadas e aplicadas automaticamente pelo app.
         </p>
       </section>

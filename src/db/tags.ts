@@ -1,5 +1,5 @@
 import { getDatabase } from "./connection";
-import { buildCategoriaContextoFilter, withDatabase } from "./utils";
+import { buildCategoriaContextoFilter, buildContextoFilter, withDatabase } from "./utils";
 import type { ContextoCategoria, ContextoVisualizacao, Tag } from "../types";
 
 export interface TagInput {
@@ -105,5 +105,59 @@ export async function getTagsPorTransacoes(
       map.set(row.transacao_id, list);
     }
     return map;
+  });
+}
+
+export async function getResultadoPorTag(
+  mesReferencia: string,
+  contexto?: ContextoVisualizacao,
+): Promise<import("../types").ResultadoPorTag[]> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const filter = buildContextoFilter(contexto, "tr.contexto");
+    let query = `SELECT tg.id AS tag_id,
+              tg.nome AS tag_nome,
+              tg.cor AS tag_cor,
+              COALESCE(SUM(CASE WHEN tr.tipo = 'receita' THEN tr.valor ELSE 0 END), 0) AS receitas,
+              COALESCE(SUM(CASE WHEN tr.tipo = 'despesa' THEN tr.valor ELSE 0 END), 0) AS despesas
+       FROM tags tg
+       JOIN transacao_tags tt ON tt.tag_id = tg.id
+       JOIN transacoes tr ON tr.id = tt.transacao_id
+       WHERE tr.status = 'efetivado'
+         AND tr.tipo IN ('receita', 'despesa')
+         AND tr.data LIKE $1`;
+    const params: unknown[] = [`${mesReferencia}%`];
+
+    if (filter.clause) {
+      query += filter.clause.replace(/\$CTX/g, () => `$${params.length + 1}`);
+      params.push(...filter.params);
+    }
+
+    query += ` GROUP BY tg.id, tg.nome, tg.cor
+       HAVING receitas > 0 OR despesas > 0
+       ORDER BY (receitas - despesas) ASC, tg.nome ASC`;
+
+    const rows = await db.select<
+      {
+        tag_id: number;
+        tag_nome: string;
+        tag_cor: string;
+        receitas: number | string;
+        despesas: number | string;
+      }[]
+    >(query, params);
+
+    return rows.map((r) => {
+      const receitas = Number(r.receitas);
+      const despesas = Number(r.despesas);
+      return {
+        tag_id: Number(r.tag_id),
+        tag_nome: r.tag_nome,
+        tag_cor: r.tag_cor,
+        receitas,
+        despesas,
+        resultado: Math.round((receitas - despesas) * 100) / 100,
+      };
+    });
   });
 }

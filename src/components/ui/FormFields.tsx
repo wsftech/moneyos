@@ -19,7 +19,7 @@ export function Input({ label, error, className = "", id, ...props }: InputProps
         className={`app-input ${error ? "border-rose-500/50 focus:border-rose-500/50 focus:ring-rose-500/20" : ""} ${className}`}
         {...props}
       />
-      {error && <p className="text-xs text-rose-400">{error}</p>}
+      {error && <p className="text-xs text-rose-600">{error}</p>}
     </div>
   );
 }

@@ -15,6 +15,8 @@ const TEMPLATES: Record<
     { nome: "Transporte", tipo: "despesa", contexto: "pessoal", cor: "#a78bfa" },
     { nome: "Saúde", tipo: "despesa", contexto: "pessoal", cor: "#fb7185" },
     { nome: "Lazer", tipo: "despesa", contexto: "pessoal", cor: "#fbbf24" },
+    { nome: "Financiamento", tipo: "despesa", contexto: "pessoal", cor: "#64748b" },
+    { nome: "Empréstimo", tipo: "despesa", contexto: "pessoal", cor: "#78716c" },
   ],
   empresa_basico: [
     { nome: "Vendas", tipo: "receita", contexto: "empresa", cor: "#34d399" },
@@ -24,6 +26,8 @@ const TEMPLATES: Record<
     { nome: "Impostos", tipo: "despesa", contexto: "empresa", cor: "#ef4444" },
     { nome: "Marketing", tipo: "despesa", contexto: "empresa", cor: "#a78bfa" },
     { nome: "Infraestrutura", tipo: "despesa", contexto: "empresa", cor: "#94a3b8" },
+    { nome: "Financiamento", tipo: "despesa", contexto: "empresa", cor: "#64748b" },
+    { nome: "Empréstimo", tipo: "despesa", contexto: "empresa", cor: "#78716c" },
   ],
 };
 

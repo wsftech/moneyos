@@ -202,7 +202,13 @@ export async function listParcelas(emprestimoId: number): Promise<EmprestimoParc
 }
 
 export async function createEmprestimo(input: EmprestimoInput): Promise<EmprestimoResumo> {
-  return withDatabase(async () => {
+  if (input.categoria_id == null) {
+    throw new DatabaseError(
+      "Informe a categoria do orçamento (ex.: Empréstimo) para a parcela entrar no controle mensal.",
+    );
+  }
+
+  const resumo = await withDatabase(async () => {
     const db = await getDatabase();
     const timestamp = nowIso();
     const result = await db.execute(
@@ -217,7 +223,7 @@ export async function createEmprestimo(input: EmprestimoInput): Promise<Empresti
         input.total_parcelas,
         input.contexto,
         input.conta_id,
-        input.categoria_id ?? null,
+        input.categoria_id,
         input.data_primeira_parcela,
         fromBoolean(input.ativo ?? true),
         input.observacoes ?? null,
@@ -237,6 +243,18 @@ export async function createEmprestimo(input: EmprestimoInput): Promise<Empresti
     if (!fin) throw new DatabaseError("Falha ao criar empréstimo");
     return calcularResumoEmprestimo(fin);
   });
+
+  const { garantirOrcamentoParcelaDivida } = await import("./orcamentos");
+  const mesRef = input.data_primeira_parcela.slice(0, 7);
+  await garantirOrcamentoParcelaDivida({
+    descricao: input.descricao,
+    categoria_id: input.categoria_id,
+    contexto: input.contexto,
+    valor_parcela: input.valor_parcela,
+    mes_referencia: mesRef,
+  });
+
+  return resumo;
 }
 
 export async function updateEmprestimo(
@@ -246,6 +264,10 @@ export async function updateEmprestimo(
   return withDatabase(async () => {
     const existing = await getEmprestimo(id);
     if (!existing) throw new DatabaseError("Emprestimo não encontrado");
+
+    if (input.categoria_id === null) {
+      throw new DatabaseError("A categoria do orçamento é obrigatória no empréstimo.");
+    }
 
     const db = await getDatabase();
     const novoTotal = input.valor_total ?? existing.valor_total;

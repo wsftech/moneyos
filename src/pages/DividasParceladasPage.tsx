@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { EmprestimosPage } from "./EmprestimosPage";
 import { FinanciamentosPage } from "./FinanciamentosPage";
 import { PageHeader, LoadingSpinner } from "../components/ui/Feedback";
@@ -23,13 +24,24 @@ type ItemDivida = {
 
 export function DividasParceladasPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [aba, setAba] = useState<AbaDivida>("todos");
   const [resumo, setResumo] = useState<ItemDivida[]>([]);
   const [loadingResumo, setLoadingResumo] = useState(true);
+  const [abrirNovoFinanciamento, setAbrirNovoFinanciamento] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("nova") !== "1") return;
+    setAba("financiamento");
+    setAbrirNovoFinanciamento(true);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const carregarResumo = useCallback(async () => {
     setLoadingResumo(true);
     try {
+      const { backfillCategoriasDividasSemCategoria } = await import("../db/categorias");
+      await backfillCategoriasDividasSemCategoria(contexto);
       await Promise.all([syncFin(), syncEmp()]);
       const [fin, emp] = await Promise.all([
         listFinanciamentos(contexto),
@@ -97,7 +109,7 @@ export function DividasParceladasPage() {
         <section className="space-y-4">
           <div className="app-card p-5">
             <p className="text-xs text-slate-500">Saldo devedor total</p>
-            <p className="text-2xl font-bold text-rose-300">{formatCurrency(totalRestante)}</p>
+            <p className="text-2xl font-bold text-rose-700">{formatCurrency(totalRestante)}</p>
             <p className="mt-1 text-xs text-slate-500">{resumo.length} contrato(s) ativo(s)</p>
           </div>
           {loadingResumo || ctxLoading ? (
@@ -110,14 +122,14 @@ export function DividasParceladasPage() {
                 <div key={item.chave} className="app-card p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-semibold text-slate-100">{item.descricao}</p>
+                      <p className="font-semibold text-slate-900">{item.descricao}</p>
                       <p className="text-xs capitalize text-slate-500">{item.tipo}</p>
                     </div>
                     {contexto === "consolidado" && (
                       <ContextoBadge itemContexto={item.contexto} />
                     )}
                   </div>
-                  <p className="mt-2 text-lg font-bold text-rose-300">
+                  <p className="mt-2 text-lg font-bold text-rose-700">
                     {formatCurrency(item.valor_restante)}
                   </p>
                   <p className="mt-1 text-xs text-slate-400">
@@ -125,7 +137,7 @@ export function DividasParceladasPage() {
                     {item.proximo_vencimento &&
                       ` · Próx.: ${formatDate(item.proximo_vencimento)}`}
                   </p>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className="h-full rounded-full bg-emerald-500"
                       style={{ width: `${item.percentual_pago}%` }}
@@ -138,7 +150,14 @@ export function DividasParceladasPage() {
         </section>
       )}
 
-      {aba === "financiamento" && <FinanciamentosPage embedded onChanged={carregarResumo} />}
+      {aba === "financiamento" && (
+        <FinanciamentosPage
+          embedded
+          onChanged={carregarResumo}
+          abrirNovo={abrirNovoFinanciamento}
+          onAbrirNovoConsumido={() => setAbrirNovoFinanciamento(false)}
+        />
+      )}
       {aba === "emprestimo" && <EmprestimosPage embedded onChanged={carregarResumo} />}
     </div>
   );

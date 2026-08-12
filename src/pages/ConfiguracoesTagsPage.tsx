@@ -56,13 +56,13 @@ export function ConfiguracoesTagsPage() {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-slate-500">
         Tags funcionam como centros de custo — classifique transações por projeto, cliente ou
         departamento.
       </p>
       {error && <ErrorAlert message={error} />}
       <form onSubmit={(e) => void handleCreate(e)} className="app-card space-y-4 p-5">
-        <h2 className="font-semibold text-slate-100">Nova tag</h2>
+        <h2 className="font-semibold text-slate-900">Nova tag</h2>
         <div className="grid gap-4 md:grid-cols-3">
           <Input label="Nome" value={nome} onChange={(e) => setNome(e.target.value)} required />
           <Select
@@ -88,9 +88,9 @@ export function ConfiguracoesTagsPage() {
           {tags.map((tag) => (
             <li
               key={tag.id}
-              className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
+              className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
             >
-              <span className="flex items-center gap-2 text-sm text-slate-200">
+              <span className="flex items-center gap-2 text-sm text-slate-700">
                 <span
                   className="inline-block h-3 w-3 rounded-full"
                   style={{ backgroundColor: tag.cor }}
@@ -98,7 +98,7 @@ export function ConfiguracoesTagsPage() {
                 {tag.nome}
                 <span className="text-xs text-slate-500">({tag.contexto})</span>
               </span>
-              <Button variant="ghost" className="text-rose-400" onClick={() => void handleDelete(tag.id)}>
+              <Button variant="ghost" className="text-rose-600" onClick={() => void handleDelete(tag.id)}>
                 Excluir
               </Button>
             </li>

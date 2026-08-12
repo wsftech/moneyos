@@ -13,7 +13,7 @@
   URL base onde os arquivos estarão hospedados (ex: GitHub Releases)
 
 .EXAMPLE
-  .\scripts\generate-latest-json.ps1 -Version "0.2.0" -BaseUrl "https://github.com/user/money-os/releases/download/v0.2.0"
+  .\scripts\generate-latest-json.ps1 -Version "0.2.0" -BaseUrl "https://github.com/wsftech/moneyos/releases/download/v0.2.0"
 #>
 param(
   [Parameter(Mandatory = $true)]
@@ -30,39 +30,41 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $NsisDir = Join-Path $Root "src-tauri\target\release\bundle\nsis"
 
 if (-not (Test-Path $NsisDir)) {
-  throw "Pasta NSIS não encontrada. Execute npm run tauri build primeiro."
+  throw "Pasta NSIS nao encontrada. Execute npm run tauri build primeiro."
 }
 
-$setupExe = Get-ChildItem $NsisDir -Filter "*setup*.exe" | Select-Object -First 1
-$sigFile = Get-ChildItem $NsisDir -Filter "*.sig" | Where-Object { $_.Name -like "*setup*" -or $_.Name -like "*.exe.sig" } | Select-Object -First 1
-
+# Prefer installer matching the requested version (avoid picking an older build in the folder).
+$candidates = @(Get-ChildItem $NsisDir -Filter "*setup*.exe" -ErrorAction SilentlyContinue)
+if ($candidates.Count -eq 0) {
+  $candidates = @(Get-ChildItem $NsisDir -Filter "*.exe" -ErrorAction SilentlyContinue)
+}
+$setupExe = $candidates | Where-Object { $_.Name -like "*$Version*" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $setupExe) {
-  $setupExe = Get-ChildItem $NsisDir -Filter "*.exe" | Select-Object -First 1
+  $setupExe = $candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 }
 if (-not $setupExe) {
-  throw "Instalador .exe não encontrado em $NsisDir"
+  throw "Instalador .exe nao encontrado em $NsisDir"
 }
 
-if (-not $sigFile) {
-  $sigCandidate = "$($setupExe.FullName).sig"
-  if (Test-Path $sigCandidate) {
-    $sigFile = Get-Item $sigCandidate
-  } else {
-    throw "Arquivo .sig não encontrado. Verifique createUpdaterArtifacts e TAURI_SIGNING_PRIVATE_KEY."
-  }
+$sigCandidate = "$($setupExe.FullName).sig"
+if (Test-Path $sigCandidate) {
+  $sigFile = Get-Item $sigCandidate
+} else {
+  throw "Arquivo .sig nao encontrado ao lado do instalador: $sigCandidate"
 }
 
 $signature = (Get-Content $sigFile.FullName -Raw).Trim()
 $baseUrl = $BaseUrl.TrimEnd("/")
-$fileName = $setupExe.Name
-$url = "$baseUrl/$fileName"
+# Encode spaces/special chars so the updater can download the asset.
+$fileNameEncoded = [Uri]::EscapeDataString($setupExe.Name).Replace("%2E", ".")
+$url = "$baseUrl/$fileNameEncoded"
 
-$manifest = @{
-  version = $Version
-  notes   = $Notes
+$manifest = [ordered]@{
+  version  = $Version
+  notes    = $Notes
   pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-  platforms = @{
-    "windows-x86_64" = @{
+  platforms = [ordered]@{
+    "windows-x86_64" = [ordered]@{
       signature = $signature
       url       = $url
     }
@@ -70,8 +72,13 @@ $manifest = @{
 }
 
 $outPath = Join-Path $Root "latest.json"
-$manifest | ConvertTo-Json -Depth 5 | Set-Content $outPath -Encoding UTF8
+# UTF-8 sem BOM — o updater Tauri falha com BOM do Set-Content -Encoding UTF8 no Windows PowerShell 5.1
+$json = $manifest | ConvertTo-Json -Depth 5
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($outPath, $json, $utf8NoBom)
 
 Write-Host "Gerado: $outPath" -ForegroundColor Green
+Write-Host "Instalador: $($setupExe.Name)"
+Write-Host "URL: $url"
 Write-Host ""
-Get-Content $outPath
+Get-Content $outPath -Raw

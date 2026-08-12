@@ -17,6 +17,7 @@ export interface ContaInput {
   saldo_inicial: number;
   cor: string;
   icone?: string | null;
+  logo_path?: string | null;
   ativo: boolean;
   dia_fechamento?: number | null;
   dia_vencimento?: number | null;
@@ -32,6 +33,7 @@ interface ContaRow {
   saldo_inicial: number;
   cor: string;
   icone: string | null;
+  logo_path: string | null;
   ativo: number;
   dia_fechamento: number | null;
   dia_vencimento: number | null;
@@ -42,6 +44,7 @@ interface ContaRow {
 function mapConta(row: ContaRow): Conta {
   return {
     ...row,
+    logo_path: row.logo_path ?? null,
     ativo: toBoolean(row.ativo),
   };
 }
@@ -71,8 +74,8 @@ export async function createConta(input: ContaInput): Promise<Conta> {
   return withDatabase(async () => {
     const db = await getDatabase();
     const result = await db.execute(
-      `INSERT INTO contas (nome, tipo, contexto, saldo_inicial, cor, icone, ativo, dia_fechamento, dia_vencimento, limite_credito, data_saldo_inicial)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      `INSERT INTO contas (nome, tipo, contexto, saldo_inicial, cor, icone, logo_path, ativo, dia_fechamento, dia_vencimento, limite_credito, data_saldo_inicial)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         input.nome,
         input.tipo,
@@ -80,6 +83,7 @@ export async function createConta(input: ContaInput): Promise<Conta> {
         input.saldo_inicial,
         input.cor,
         input.icone ?? null,
+        input.logo_path ?? null,
         fromBoolean(input.ativo),
         input.dia_fechamento ?? null,
         input.dia_vencimento ?? null,
@@ -105,9 +109,9 @@ export async function updateConta(id: number, input: Partial<ContaInput>): Promi
     const db = await getDatabase();
     await db.execute(
       `UPDATE contas
-       SET nome = $1, tipo = $2, contexto = $3, saldo_inicial = $4, cor = $5, icone = $6, ativo = $7,
-           dia_fechamento = $8, dia_vencimento = $9, limite_credito = $10, data_saldo_inicial = $11
-       WHERE id = $12`,
+       SET nome = $1, tipo = $2, contexto = $3, saldo_inicial = $4, cor = $5, icone = $6, logo_path = $7, ativo = $8,
+           dia_fechamento = $9, dia_vencimento = $10, limite_credito = $11, data_saldo_inicial = $12
+       WHERE id = $13`,
       [
         input.nome ?? existing.nome,
         input.tipo ?? existing.tipo,
@@ -115,6 +119,7 @@ export async function updateConta(id: number, input: Partial<ContaInput>): Promi
         input.saldo_inicial ?? existing.saldo_inicial,
         input.cor ?? existing.cor,
         input.icone !== undefined ? input.icone : existing.icone,
+        input.logo_path !== undefined ? input.logo_path : existing.logo_path,
         fromBoolean(input.ativo ?? existing.ativo),
         input.dia_fechamento !== undefined ? input.dia_fechamento : existing.dia_fechamento,
         input.dia_vencimento !== undefined ? input.dia_vencimento : existing.dia_vencimento,
@@ -134,8 +139,17 @@ export async function updateConta(id: number, input: Partial<ContaInput>): Promi
 
 export async function deleteConta(id: number): Promise<void> {
   return withDatabase(async () => {
+    const existing = await getConta(id);
     const db = await getDatabase();
     await db.execute("DELETE FROM contas WHERE id = $1", [id]);
+    if (existing?.logo_path) {
+      try {
+        const { removerArquivoLogo } = await import("./logosConta");
+        await removerArquivoLogo(existing.logo_path);
+      } catch {
+        // ignore
+      }
+    }
   });
 }
 

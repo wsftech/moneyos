@@ -34,14 +34,14 @@ export function TagSelect({
 
   return (
     <div className="space-y-2">
-      <span className="block text-sm font-medium text-slate-300">Tags / centros de custo</span>
+      <span className="block text-sm font-medium text-slate-600">Tags / centros de custo</span>
       {selectedTags.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {selectedTags.map((tag) => (
             <button
               key={tag.id}
               type="button"
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-white"
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-slate-900"
               style={{ backgroundColor: tag.cor }}
               onClick={() => removeTag(tag.id)}
               title="Remover tag"

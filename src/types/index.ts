@@ -27,6 +27,8 @@ export interface Conta {
   saldo_inicial: number;
   cor: string;
   icone: string | null;
+  /** Caminho local do logo (PNG/JPG/WEBP/GIF/SVG) */
+  logo_path: string | null;
   ativo: boolean;
   /** Dia do fechamento da fatura (1–31), só cartão de crédito */
   dia_fechamento: number | null;
@@ -67,6 +69,10 @@ export interface Transacao {
   fatura_cartao_id: number | null;
   /** Transferência de pagamento de fatura (não entra no P&L) */
   pagamento_fatura_id: number | null;
+  /** Agrupa parcelas de uma compra N× no cartão */
+  compra_parcelada_id: string | null;
+  parcela_numero: number | null;
+  parcela_total: number | null;
   created_at: string;
   updated_at: string;
   /** Tags vinculadas (preenchido em consultas estendidas) */
@@ -92,6 +98,28 @@ export interface ContaPagarReceber {
   categoria_id: number | null;
   /** Mês YYYY-MM em que o valor conta no orçamento (ex.: gastos de ago. na fatura que vence em set.) */
   mes_referencia: string | null;
+  contato_id: number | null;
+}
+
+export type TipoContato = "cliente" | "fornecedor" | "ambos";
+
+export interface Contato {
+  id: number;
+  nome: string;
+  tipo: TipoContato;
+  contexto: ContextoCategoria;
+  observacoes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResultadoPorTag {
+  tag_id: number;
+  tag_nome: string;
+  tag_cor: string;
+  receitas: number;
+  despesas: number;
+  resultado: number;
 }
 
 export interface Orcamento {
@@ -274,13 +302,18 @@ export interface ItemEndividamento {
 export interface RelatorioEndividamento {
   patrimonio: PatrimonioResumo;
   itens: ItemEndividamento[];
+  /** Dívida total unificada (parceladas + faturas) */
   total_dividas: number;
   total_faturas_cartao: number;
+  /** Parcelas de contratos + faturas com vencimento no mês */
   parcelas_mes_atual: number;
   indicadores: {
+    /** Caixa disponível ÷ dívida total */
     cobertura_caixa: number | null;
+    /** Dívida total ÷ saldo em contas (ativos) */
     divida_sobre_patrimonio: number | null;
-    meses_caixa_para_divida: number | null;
+    /** Runway: quantos meses o caixa cobre a obrigação mensal */
+    runway_meses: number | null;
   };
 }
 
@@ -342,9 +375,14 @@ export interface RegraCategorizacao {
 }
 
 export interface PatrimonioResumo {
+  /** Ativos em contas (exclui cartão — passivo entra em dividas_cartao) */
   saldo_contas: number;
+  /** Dívida total = parceladas + cartão */
   dividas: number;
+  dividas_parceladas: number;
+  dividas_cartao: number;
   patrimonio_liquido: number;
+  /** Liquidez em banco/dinheiro/poupança (pode ser negativo) */
   caixa_disponivel: number;
 }
 

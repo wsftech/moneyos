@@ -31,7 +31,20 @@ export type ProgressoAtualizacao =
   | { fase: "idle" }
   | { fase: "baixando"; baixado: number; total?: number }
   | { fase: "instalando" }
-  | { fase: "concluido" };
+  | { fase: "reiniciando" };
+
+export function percentualProgresso(progresso: ProgressoAtualizacao): number | null {
+  if (progresso.fase !== "baixando" || !progresso.total || progresso.total <= 0) {
+    return null;
+  }
+  return Math.min(100, Math.round((progresso.baixado / progresso.total) * 100));
+}
+
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export async function obterVersaoApp(): Promise<string | null> {
   if (!isTauri()) return null;
@@ -77,18 +90,18 @@ export async function baixarEInstalarAtualizacao(
   onProgresso?.({ fase: "baixando", baixado: 0 });
 
   let baixado = 0;
+  let total: number | undefined;
+
   await update.downloadAndInstall((event: DownloadEvent) => {
     switch (event.event) {
       case "Started":
-        onProgresso?.({
-          fase: "baixando",
-          baixado: 0,
-          total: event.data.contentLength ?? undefined,
-        });
+        total = event.data.contentLength ?? undefined;
+        baixado = 0;
+        onProgresso?.({ fase: "baixando", baixado: 0, total });
         break;
       case "Progress":
         baixado += event.data.chunkLength;
-        onProgresso?.({ fase: "baixando", baixado });
+        onProgresso?.({ fase: "baixando", baixado, total });
         break;
       case "Finished":
         onProgresso?.({ fase: "instalando" });
@@ -96,32 +109,28 @@ export async function baixarEInstalarAtualizacao(
     }
   });
 
-  onProgresso?.({ fase: "concluido" });
+  // Dá tempo do UI pintar "Reiniciando…" antes do processo sair.
+  onProgresso?.({ fase: "reiniciando" });
+  await new Promise((r) => setTimeout(r, 600));
   await relaunch();
 }
 
-export async function verificarAtualizacaoSilenciosa(): Promise<void> {
-  const status = await verificarAtualizacao();
-  if (status.tipo !== "disponivel") return;
+export function chaveDismissAtualizacao(versao: string): string {
+  return `moneyos_update_dismiss_${versao}`;
+}
 
-  const chave = `moneyos_update_dismiss_${status.versao}`;
+export function foiDismissAtualizacao(versao: string): boolean {
   try {
-    if (sessionStorage.getItem(chave) === "1") return;
+    return sessionStorage.getItem(chaveDismissAtualizacao(versao)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function dismissAtualizacao(versao: string): void {
+  try {
+    sessionStorage.setItem(chaveDismissAtualizacao(versao), "1");
   } catch {
     /* ignore */
   }
-
-  const instalar = confirm(
-    `Atualização ${status.versao} disponível.\n\n${status.notas ?? "Deseja instalar agora?"}`,
-  );
-  if (!instalar) {
-    try {
-      sessionStorage.setItem(chave, "1");
-    } catch {
-      /* ignore */
-    }
-    return;
-  }
-
-  await baixarEInstalarAtualizacao();
 }

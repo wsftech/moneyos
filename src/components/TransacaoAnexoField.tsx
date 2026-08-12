@@ -103,10 +103,10 @@ export function TransacaoAnexoField({
 
   return (
     <div className="space-y-2">
-      <span className="block text-sm font-medium text-slate-300">Anexo</span>
+      <span className="block text-sm font-medium text-slate-600">Anexo</span>
       {label ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-sm text-slate-200" title={label}>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <span className="min-w-0 flex-1 truncate text-sm text-slate-700" title={label}>
             📎 {label}
           </span>
           {anexoPath && (
@@ -126,7 +126,7 @@ export function TransacaoAnexoField({
           <Button
             type="button"
             variant="ghost"
-            className="px-2 py-1 text-rose-400"
+            className="px-2 py-1 text-rose-600"
             disabled={loading}
             onClick={() => void handleRemover()}
           >
@@ -146,7 +146,7 @@ export function TransacaoAnexoField({
       {!transacaoId && pendingSource && (
         <p className="text-xs text-slate-500">O arquivo será anexado ao salvar a transação.</p>
       )}
-      {error && <p className="text-sm text-rose-400">{error}</p>}
+      {error && <p className="text-sm text-rose-600">{error}</p>}
     </div>
   );
 }

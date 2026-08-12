@@ -48,3 +48,16 @@ export async function getUltimoLembrete(chave: string): Promise<string | null> {
 export async function setUltimoLembrete(chave: string, valor: string): Promise<void> {
   await setAppConfig(`lembrete_${chave}`, valor);
 }
+
+const NOME_USUARIO_KEY = "nome_usuario";
+const NOME_USUARIO_PADRAO = "Usuário";
+
+export async function getNomeUsuario(): Promise<string> {
+  const nome = (await getAppConfig(NOME_USUARIO_KEY))?.trim();
+  return nome || NOME_USUARIO_PADRAO;
+}
+
+export async function setNomeUsuario(nome: string): Promise<void> {
+  const limpo = nome.trim();
+  await setAppConfig(NOME_USUARIO_KEY, limpo || NOME_USUARIO_PADRAO);
+}

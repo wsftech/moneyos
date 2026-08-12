@@ -1,7 +1,12 @@
 export function addMonths(dateStr: string, months: number): string {
   const [y, m, d] = dateStr.split("-").map(Number);
-  const date = new Date(y, m - 1 + months, d);
-  return date.toISOString().slice(0, 10);
+  const target = new Date(y, m - 1 + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  const day = Math.min(d, lastDay);
+  const yy = target.getFullYear();
+  const mm = String(target.getMonth() + 1).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 export function mesFromDate(dateStr: string): string {

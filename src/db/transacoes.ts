@@ -50,6 +50,9 @@ export interface TransacaoInput {
   fatura_cartao_id?: number | null;
   pagamento_fatura_id?: number | null;
   tag_ids?: number[];
+  compra_parcelada_id?: string | null;
+  parcela_numero?: number | null;
+  parcela_total?: number | null;
 }
 
 export interface TransferenciaInput {
@@ -89,12 +92,20 @@ interface TransacaoRow {
   transferencia_papel: TransferenciaPapel | null;
   fatura_cartao_id: number | null;
   pagamento_fatura_id: number | null;
+  compra_parcelada_id: string | null;
+  parcela_numero: number | null;
+  parcela_total: number | null;
   created_at: string;
   updated_at: string;
 }
 
 function mapTransacao(row: TransacaoRow): Transacao {
-  return row;
+  return {
+    ...row,
+    compra_parcelada_id: row.compra_parcelada_id ?? null,
+    parcela_numero: row.parcela_numero ?? null,
+    parcela_total: row.parcela_total ?? null,
+  };
 }
 
 async function insertTransacao(input: TransacaoInput): Promise<number> {
@@ -104,8 +115,9 @@ async function insertTransacao(input: TransacaoInput): Promise<number> {
     `INSERT INTO transacoes
      (descricao, valor, data, tipo, conta_id, categoria_id, contexto, status,
       anexo_path, observacoes, transacao_vinculada_id, transferencia_papel,
-      fatura_cartao_id, pagamento_fatura_id, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      fatura_cartao_id, pagamento_fatura_id, compra_parcelada_id, parcela_numero, parcela_total,
+      created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
     [
       input.descricao,
       input.valor,
@@ -121,6 +133,9 @@ async function insertTransacao(input: TransacaoInput): Promise<number> {
       input.transferencia_papel ?? null,
       input.fatura_cartao_id ?? null,
       input.pagamento_fatura_id ?? null,
+      input.compra_parcelada_id ?? null,
+      input.parcela_numero ?? null,
+      input.parcela_total ?? null,
       timestamp,
       timestamp,
     ],
@@ -228,6 +243,51 @@ export async function createTransacao(input: TransacaoInput): Promise<Transacao>
 
     return transacao;
   });
+}
+
+/**
+ * Cria N despesas no cartão, uma por fatura/mês, agrupadas por compra_parcelada_id.
+ * Cada parcela é vinculada automaticamente à fatura do ciclo correspondente.
+ */
+export async function createCompraParceladaCartao(
+  input: Omit<TransacaoInput, "tipo" | "parcela_numero" | "parcela_total" | "compra_parcelada_id"> & {
+    parcelas: number;
+  },
+): Promise<Transacao[]> {
+  const n = Math.floor(input.parcelas);
+  if (n < 2 || n > 48) {
+    throw new DatabaseError("Informe entre 2 e 48 parcelas");
+  }
+
+  const conta = await getConta(input.conta_id);
+  if (!conta || conta.tipo !== "cartao_credito") {
+    throw new DatabaseError("Parcelamento só está disponível para cartão de crédito");
+  }
+
+  const { dividirValorTotal } = await import("../utils/financiamentoCalc");
+  const { addMonths } = await import("../utils/dates");
+  const valores = dividirValorTotal(input.valor, n);
+  const groupId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `parc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  const criadas: Transacao[] = [];
+  for (let i = 0; i < n; i++) {
+    const dataParcela = addMonths(input.data, i);
+    const created = await createTransacao({
+      ...input,
+      tipo: "despesa",
+      valor: valores[i],
+      data: dataParcela,
+      descricao: `${input.descricao} (${i + 1}/${n})`,
+      compra_parcelada_id: groupId,
+      parcela_numero: i + 1,
+      parcela_total: n,
+    });
+    criadas.push(created);
+  }
+  return criadas;
 }
 
 export async function createTransferencia(

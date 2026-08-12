@@ -26,7 +26,7 @@ export function ConfiguracoesDadosPage() {
     try {
       const dest = await save({
         title: "Salvar backup",
-        defaultPath: `money-os-backup-${new Date().toISOString().slice(0, 10)}.db`,
+        defaultPath: `wsf-money-backup-${new Date().toISOString().slice(0, 10)}.db`,
         filters: [{ name: "SQLite", extensions: ["db"] }],
       });
       if (!dest) return;
@@ -66,21 +66,21 @@ export function ConfiguracoesDadosPage() {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-slate-500">
         Faça backup regular do banco de dados local. Recomendado antes de atualizações ou
         restaurações.
       </p>
 
       {error && <ErrorAlert message={error} />}
       {success && (
-        <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {success}
         </p>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="app-card p-5">
-          <h3 className="font-semibold text-slate-100">Backup</h3>
+          <h3 className="font-semibold text-slate-900">Backup</h3>
           <p className="mt-1 text-sm text-slate-500">Exporta uma cópia completa do banco SQLite.</p>
           <Button className="mt-4" onClick={() => void handleBackup()} disabled={loading}>
             {loading ? "Processando..." : "Exportar backup"}
@@ -88,7 +88,7 @@ export function ConfiguracoesDadosPage() {
         </div>
 
         <div className="app-card p-5">
-          <h3 className="font-semibold text-slate-100">Restaurar</h3>
+          <h3 className="font-semibold text-slate-900">Restaurar</h3>
           <p className="mt-1 text-sm text-slate-500">
             Substitui os dados atuais por um arquivo de backup (.db).
           </p>
@@ -104,12 +104,12 @@ export function ConfiguracoesDadosPage() {
       </div>
 
       <div className="app-card p-5">
-        <h3 className="font-semibold text-slate-100">Localização do banco</h3>
+        <h3 className="font-semibold text-slate-900">Localização do banco</h3>
         <p className="mt-1 text-sm text-slate-500">Caminho do arquivo financas.db neste computador.</p>
         <Button variant="ghost" className="mt-3" onClick={() => void mostrarCaminho()}>
           Mostrar caminho
         </Button>
-        {dbPath && <p className="mt-2 break-all font-mono text-xs text-slate-400">{dbPath}</p>}
+        {dbPath && <p className="mt-2 break-all font-mono text-xs text-slate-500">{dbPath}</p>}
       </div>
     </div>
   );

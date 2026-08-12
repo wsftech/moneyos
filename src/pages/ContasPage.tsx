@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ContextoBadge } from "../components/ContextoSelector";import { ContaIcone, IconeContaPicker } from "../components/ContaIcone";
+import { ContextoBadge } from "../components/ContextoSelector";
+import { ContaIcone, IconeContaPicker } from "../components/ContaIcone";
 import {
   ContextoFormSelect,
   defaultFormContexto,
@@ -19,9 +20,15 @@ import {
   type ContaComSaldo,
   type ContaInput,
 } from "../db/contas";
+import {
+  anexarLogoConta,
+  invalidarLogoPreview,
+  removerLogoConta,
+} from "../db/logosConta";
 import { getResumoCartaoCredito } from "../db/faturasCartao";
 import { getErrorMessage } from "../db/utils";
-import type { Contexto, ResumoCartaoCredito, TipoConta } from "../types";import { ICONE_PADRAO_POR_TIPO } from "../utils/contaIcone";
+import type { Contexto, ResumoCartaoCredito, TipoConta } from "../types";
+import { ICONE_PADRAO_POR_TIPO, type BancoPreset } from "../utils/contaIcone";
 import { formatCurrency, formatDate, labelTipoConta, arredondarMoeda } from "../utils/format";
 
 const TIPO_OPTIONS: { value: TipoConta; label: string }[] = [
@@ -32,12 +39,13 @@ const TIPO_OPTIONS: { value: TipoConta; label: string }[] = [
   { value: "investimento", label: "Investimento" },
 ];
 
-const CORES = ["#6366f1", "#22c55e", "#ef4444", "#f59e0b", "#06b6d4", "#8b5cf6"];
+const CORES = ["#EC0000", "#820AD1", "#EC7000", "#CC092F", "#0070AF", "#22c55e", "#0a2533", "#6366f1"];
 
 export function ContasPage() {
   const { contexto, loading: ctxLoading } = useContexto();
   const [contas, setContas] = useState<ContaComSaldo[]>([]);
-  const [resumosCartao, setResumosCartao] = useState<Map<number, ResumoCartaoCredito>>(new Map());  const [loading, setLoading] = useState(true);
+  const [resumosCartao, setResumosCartao] = useState<Map<number, ResumoCartaoCredito>>(new Map());
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ContaComSaldo | null>(null);
@@ -58,7 +66,8 @@ export function ContasPage() {
           if (r) resumosMap.set(c.id, r);
         }),
       );
-      setResumosCartao(resumosMap);    } catch (err) {
+      setResumosCartao(resumosMap);
+    } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
@@ -82,7 +91,7 @@ export function ContasPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm text-slate-400">Bancos, carteiras e cartões</p>
+        <p className="text-sm text-slate-500">Bancos, carteiras e cartões</p>
         <Button
           onClick={() => {
             setEditing(null);
@@ -93,7 +102,11 @@ export function ContasPage() {
         </Button>
       </div>
 
-      {error && <div className="mb-4"><ErrorAlert message={error} /></div>}
+      {error && (
+        <div className="mb-4">
+          <ErrorAlert message={error} />
+        </div>
+      )}
       {loading || ctxLoading ? (
         <LoadingSpinner />
       ) : contas.length === 0 ? (
@@ -104,87 +117,96 @@ export function ContasPage() {
             const resumoCartao = resumosCartao.get(conta.id);
             const isCartao = conta.tipo === "cartao_credito";
             return (
-            <div
-              key={conta.id}
-              className="app-card p-5"
-              style={{ borderTopColor: conta.cor, borderTopWidth: 3 }}
-            >
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <ContaIcone icone={conta.icone} tipo={conta.tipo} cor={conta.cor} />
-                  <div>
-                    <h3 className="font-semibold text-slate-100">{conta.nome}</h3>
-                    <p className="text-xs text-slate-500">{labelTipoConta(conta.tipo)}</p>
-                  </div>
-                </div>
-                {contexto === "consolidado" && <ContextoBadge itemContexto={conta.contexto} />}
-              </div>
-              {isCartao && resumoCartao ? (
-                <>
-                  <p className="text-xl font-bold text-rose-300">
-                    {formatCurrency(resumoCartao.total_em_aberto)}
-                    <span className="ml-2 text-sm font-normal text-slate-500">em aberto</span>
-                  </p>
-                  {resumoCartao.limite_disponivel != null && (
-                    <p className="mt-1 text-sm text-emerald-400/90">
-                      Disponível: {formatCurrency(resumoCartao.limite_disponivel)}
-                    </p>
-                  )}
-                  {resumoCartao.fatura_atual && (
-                    <div className="mt-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-xs">
-                      <p className="font-medium text-slate-300">Fatura atual</p>
-                      <p className="text-slate-500">
-                        Vence {formatDate(resumoCartao.fatura_atual.vencimento)}
-                        {resumoCartao.fatura_atual.status === "aberta" && " · Em aberto"}
-                        {resumoCartao.fatura_atual.status === "fechada" && " · Fechada"}
-                      </p>
-                      <p className="mt-1 font-semibold text-rose-300">
-                        {formatCurrency(
-                          resumoCartao.fatura_atual.total -
-                            (resumoCartao.fatura_atual.valor_pago ?? 0),
-                        )}
-                      </p>
+              <div
+                key={conta.id}
+                className="app-card p-5"
+                style={{ borderTopColor: conta.cor, borderTopWidth: 3 }}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <ContaIcone
+                      icone={conta.icone}
+                      logoPath={conta.logo_path}
+                      tipo={conta.tipo}
+                      cor={conta.cor}
+                    />
+                    <div>
+                      <h3 className="font-semibold text-slate-900">{conta.nome}</h3>
+                      <p className="text-xs text-slate-500">{labelTipoConta(conta.tipo)}</p>
                     </div>
-                  )}
-                </>
-              ) : (
-                <p className={`text-xl font-bold ${arredondarMoeda(conta.saldo) >= 0 ? "text-slate-100" : "text-rose-400"}`}>
-                  {formatCurrency(conta.saldo)}
-                </p>
-              )}              {!conta.ativo && (
-                <span className="mt-2 inline-block rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-400">
-                  Inativa
-                </span>
-              )}
-              <div className="mt-4 flex gap-2">
-                {isCartao && conta.dia_fechamento && (
-                  <Link to={`/faturas/${conta.id}`} className="flex-1">
-                    <Button variant="secondary" className="w-full py-1.5">
-                      Faturas
-                    </Button>
-                  </Link>
+                  </div>
+                  {contexto === "consolidado" && <ContextoBadge itemContexto={conta.contexto} />}
+                </div>
+                {isCartao && resumoCartao ? (
+                  <>
+                    <p className="text-xl font-bold text-rose-600">
+                      {formatCurrency(resumoCartao.total_em_aberto)}
+                      <span className="ml-2 text-sm font-normal text-slate-500">em aberto</span>
+                    </p>
+                    {resumoCartao.limite_disponivel != null && (
+                      <p className="mt-1 text-sm text-emerald-600">
+                        Disponível: {formatCurrency(resumoCartao.limite_disponivel)}
+                      </p>
+                    )}
+                    {resumoCartao.fatura_atual && (
+                      <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                        <p className="font-medium text-slate-600">Fatura atual</p>
+                        <p className="text-slate-500">
+                          Vence {formatDate(resumoCartao.fatura_atual.vencimento)}
+                          {resumoCartao.fatura_atual.status === "aberta" && " · Em aberto"}
+                          {resumoCartao.fatura_atual.status === "fechada" && " · Fechada"}
+                        </p>
+                        <p className="mt-1 font-semibold text-rose-600">
+                          {formatCurrency(
+                            resumoCartao.fatura_atual.total -
+                              (resumoCartao.fatura_atual.valor_pago ?? 0),
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p
+                    className={`text-xl font-bold ${arredondarMoeda(conta.saldo) >= 0 ? "text-slate-900" : "text-rose-600"}`}
+                  >
+                    {formatCurrency(conta.saldo)}
+                  </p>
                 )}
-                <Button
-                  variant="secondary"
-                  className="flex-1 py-1.5"
-                  onClick={() => {
-                    setEditing(conta);
-                    setModalOpen(true);
-                  }}
-                >
-                  Editar
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="text-rose-400"
-                  onClick={() => void handleDelete(conta.id)}
-                >
-                  Excluir
-                </Button>
+                {!conta.ativo && (
+                  <span className="mt-2 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                    Inativa
+                  </span>
+                )}
+                <div className="mt-4 flex gap-2">
+                  {isCartao && conta.dia_fechamento && (
+                    <Link to={`/faturas/${conta.id}`} className="flex-1">
+                      <Button variant="secondary" className="w-full py-1.5">
+                        Faturas
+                      </Button>
+                    </Link>
+                  )}
+                  <Button
+                    variant="secondary"
+                    className="flex-1 py-1.5"
+                    onClick={() => {
+                      setEditing(conta);
+                      setModalOpen(true);
+                    }}
+                  >
+                    Editar
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-rose-600"
+                    onClick={() => void handleDelete(conta.id)}
+                  >
+                    Excluir
+                  </Button>
+                </div>
               </div>
-            </div>
-          );
-          })}        </div>
+            );
+          })}
+        </div>
       )}
 
       <ContaModal
@@ -218,12 +240,16 @@ function ContaModal({
   const [saldoInicial, setSaldoInicial] = useState("0");
   const [cor, setCor] = useState(CORES[0]);
   const [icone, setIcone] = useState("");
+  const [logoPath, setLogoPath] = useState<string | null>(null);
+  const [pendingLogoSource, setPendingLogoSource] = useState<string | null>(null);
+  const [removeLogoOnSave, setRemoveLogoOnSave] = useState(false);
   const [ativo, setAtivo] = useState(true);
   const [diaFechamento, setDiaFechamento] = useState("");
   const [diaVencimento, setDiaVencimento] = useState("");
   const [limiteCredito, setLimiteCredito] = useState("");
   const [dataSaldoInicial, setDataSaldoInicial] = useState("");
-  const [saving, setSaving] = useState(false);  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (conta) {
@@ -233,23 +259,47 @@ function ContaModal({
       setSaldoInicial(String(conta.saldo_inicial));
       setCor(conta.cor);
       setIcone(conta.icone ?? "");
+      setLogoPath(conta.logo_path);
+      setPendingLogoSource(null);
+      setRemoveLogoOnSave(false);
       setAtivo(conta.ativo);
       setDiaFechamento(conta.dia_fechamento ? String(conta.dia_fechamento) : "");
       setDiaVencimento(conta.dia_vencimento ? String(conta.dia_vencimento) : "");
       setLimiteCredito(conta.limite_credito ? String(conta.limite_credito) : "");
       setDataSaldoInicial(conta.data_saldo_inicial ?? "");
-    } else {      setFormContexto(defaultFormContexto(contexto));
+    } else {
+      setFormContexto(defaultFormContexto(contexto));
       setNome("");
       setTipo("banco");
       setSaldoInicial("0");
       setCor(CORES[0]);
       setIcone("");
+      setLogoPath(null);
+      setPendingLogoSource(null);
+      setRemoveLogoOnSave(false);
       setAtivo(true);
       setDiaFechamento("");
       setDiaVencimento("");
       setLimiteCredito("");
       setDataSaldoInicial("");
-    }  }, [conta, open, contexto]);
+    }
+  }, [conta, open, contexto]);
+
+  function handleLogoPathChange(path: string | null) {
+    if (path === null) {
+      setRemoveLogoOnSave(true);
+      setLogoPath(null);
+      setPendingLogoSource(null);
+    } else {
+      setLogoPath(path);
+      setRemoveLogoOnSave(false);
+    }
+  }
+
+  function handleBancoPreset(preset: BancoPreset) {
+    setNome((atual) => (atual.trim() ? atual : preset.nome));
+    setCor(preset.cor);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -279,8 +329,20 @@ function ContaModal({
     try {
       if (conta) {
         await updateConta(conta.id, input);
+        if (pendingLogoSource) {
+          const dest = await anexarLogoConta(conta.id, pendingLogoSource, conta.logo_path);
+          invalidarLogoPreview(conta.logo_path);
+          invalidarLogoPreview(dest);
+        } else if (removeLogoOnSave && conta.logo_path) {
+          await removerLogoConta(conta.id, conta.logo_path);
+          invalidarLogoPreview(conta.logo_path);
+        }
       } else {
-        await createConta(input);
+        const criada = await createConta(input);
+        if (pendingLogoSource) {
+          const dest = await anexarLogoConta(criada.id, pendingLogoSource, null);
+          invalidarLogoPreview(dest);
+        }
       }
       onSaved();
     } catch (err) {
@@ -291,7 +353,7 @@ function ContaModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={conta ? "Editar conta" : "Nova conta"}>
+    <Modal open={open} onClose={onClose} title={conta ? "Editar conta" : "Nova conta"} wide>
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
         <Input label="Nome" value={nome} onChange={(e) => setNome(e.target.value)} required />
@@ -307,7 +369,17 @@ function ContaModal({
           }}
           options={TIPO_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
         />
-        <IconeContaPicker value={icone} onChange={setIcone} tipo={tipo} />
+        <IconeContaPicker
+          value={icone}
+          onChange={setIcone}
+          tipo={tipo}
+          logoPath={removeLogoOnSave ? null : logoPath}
+          pendingLogoSource={pendingLogoSource}
+          onLogoPathChange={handleLogoPathChange}
+          onPendingLogoSourceChange={setPendingLogoSource}
+          onBancoPreset={handleBancoPreset}
+          previewCor={cor}
+        />
         {contexto === "consolidado" && (
           <ContextoFormSelect value={formContexto} onChange={setFormContexto} />
         )}
@@ -360,21 +432,30 @@ function ContaModal({
               placeholder="Ex.: 5000"
             />
           </>
-        )}        <div>
-          <p className="mb-2 text-sm font-medium text-slate-300">Cor</p>
-          <div className="flex gap-2">
+        )}
+        <div>
+          <p className="mb-2 text-sm font-medium text-slate-600">Cor</p>
+          <div className="flex flex-wrap gap-2">
             {CORES.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => setCor(c)}
-                className={`h-8 w-8 rounded-full border-2 ${cor === c ? "border-white" : "border-transparent"}`}
+                className={`h-8 w-8 rounded-full border-2 ring-offset-2 ${cor === c ? "border-slate-900 ring-2 ring-slate-900/30" : "border-transparent"}`}
                 style={{ backgroundColor: c }}
               />
             ))}
+            {!CORES.includes(cor) && (
+              <button
+                type="button"
+                className="h-8 w-8 rounded-full border-2 border-slate-900 ring-2 ring-slate-900/30"
+                style={{ backgroundColor: cor }}
+                title="Cor do banco"
+              />
+            )}
           </div>
         </div>
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
           Conta ativa
         </label>

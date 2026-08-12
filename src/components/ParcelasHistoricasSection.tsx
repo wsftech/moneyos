@@ -56,7 +56,7 @@ export function ParcelasHistoricasSection({
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <label className="flex cursor-pointer items-start gap-3">
         <input
           type="checkbox"
@@ -65,7 +65,7 @@ export function ParcelasHistoricasSection({
           onChange={(e) => onEnabledChange(e.target.checked)}
         />
         <div>
-          <span className="text-sm font-medium text-slate-200">
+          <span className="text-sm font-medium text-slate-700">
             Já paguei parcelas antes de cadastrar
           </span>
           <p className="mt-0.5 text-xs text-slate-500">
@@ -114,7 +114,7 @@ export function ParcelasHistoricasSection({
                     <th className="px-3 py-2 font-medium">Valor pago</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/10">
+                <tbody className="divide-y divide-slate-100">
                   {rows.map((row, i) => (
                     <tr key={row.numero_parcela}>
                       <td className="px-3 py-2">{row.numero_parcela}</td>

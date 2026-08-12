@@ -1,9 +1,9 @@
-import { getDatabase } from "./connection";
 import { listContas } from "./contas";
 import { listEmprestimos } from "./emprestimos";
 import { listFaturasPendentesContexto } from "./faturasCartao";
 import { listFinanciamentos } from "./financiamentos";
 import { getPatrimonioResumo } from "./patrimonio";
+import { getDatabase } from "./connection";
 import { applyContextoFilter, buildContextoFilter, withDatabase } from "./utils";
 import type { ContextoVisualizacao, ItemEndividamento, RelatorioEndividamento } from "../types";
 import { arredondarMoeda, mesAtual } from "../utils/format";
@@ -48,20 +48,34 @@ async function parcelasVencendoNoMes(
   });
 }
 
+function faturasVencendoNoMes(
+  faturas: Awaited<ReturnType<typeof listFaturasPendentesContexto>>,
+  mesReferencia: string,
+): number {
+  const inicio = `${mesReferencia}-01`;
+  const fim = `${mesReferencia}-31`;
+  return arredondarMoeda(
+    faturas
+      .filter((f) => f.vencimento >= inicio && f.vencimento <= fim)
+      .reduce((s, f) => s + (f.total - (f.valor_pago ?? 0)), 0),
+  );
+}
+
 export async function getRelatorioEndividamento(
   contexto?: ContextoVisualizacao,
   mesReferencia?: string,
 ): Promise<RelatorioEndividamento> {
   const mes = mesReferencia ?? mesAtual();
 
-  const [patrimonio, financiamentos, emprestimos, faturas, parcelasMes, contas] = await Promise.all([
-    getPatrimonioResumo(contexto),
-    listFinanciamentos(contexto),
-    listEmprestimos(contexto),
-    listFaturasPendentesContexto(contexto),
-    parcelasVencendoNoMes(contexto, mes),
-    listContas(contexto),
-  ]);
+  const [patrimonio, financiamentos, emprestimos, faturas, parcelasContratos, contas] =
+    await Promise.all([
+      getPatrimonioResumo(contexto),
+      listFinanciamentos(contexto),
+      listEmprestimos(contexto),
+      listFaturasPendentesContexto(contexto),
+      parcelasVencendoNoMes(contexto, mes),
+      listContas(contexto),
+    ]);
 
   const contextoPorConta = new Map(contas.map((c) => [c.id, c.contexto]));
 
@@ -105,21 +119,25 @@ export async function getRelatorioEndividamento(
     })),
   ].sort((a, b) => b.valor_restante - a.valor_restante);
 
-  const total_faturas_cartao = arredondarMoeda(
-    faturas.reduce((s, f) => s + f.total - (f.valor_pago ?? 0), 0),
+  const total_faturas_cartao = patrimonio.dividas_cartao;
+  const parcelas_mes_atual = arredondarMoeda(
+    parcelasContratos + faturasVencendoNoMes(faturas, mes),
   );
 
   const cobertura_caixa =
-    patrimonio.dividas > 0 ? arredondarMoeda(patrimonio.caixa_disponivel / patrimonio.dividas) : null;
+    patrimonio.dividas > 0
+      ? arredondarMoeda(patrimonio.caixa_disponivel / patrimonio.dividas)
+      : null;
 
   const divida_sobre_patrimonio =
     patrimonio.saldo_contas > 0
       ? arredondarMoeda(patrimonio.dividas / patrimonio.saldo_contas)
       : null;
 
-  const meses_caixa_para_divida =
-    parcelasMes > 0 && patrimonio.caixa_disponivel > 0
-      ? arredondarMoeda(patrimonio.dividas / parcelasMes)
+  /** Runway: meses que o caixa cobre a obrigação do mês (parcelas + faturas). */
+  const runway_meses =
+    parcelas_mes_atual > 0
+      ? arredondarMoeda(Math.max(0, patrimonio.caixa_disponivel) / parcelas_mes_atual)
       : null;
 
   return {
@@ -127,11 +145,11 @@ export async function getRelatorioEndividamento(
     itens,
     total_dividas: patrimonio.dividas,
     total_faturas_cartao,
-    parcelas_mes_atual: parcelasMes,
+    parcelas_mes_atual,
     indicadores: {
       cobertura_caixa,
       divida_sobre_patrimonio,
-      meses_caixa_para_divida,
+      runway_meses,
     },
   };
 }

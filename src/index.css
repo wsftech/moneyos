@@ -2,21 +2,22 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --color-app-bg: #121212;
-  --color-app-panel: #1c1c1e;
-  --color-app-card: #252528;
-  --color-brand-income: #6366f1;
-  --color-brand-expense: #ff2d55;
-  --color-brand-accent: #bf5af2;
+  --color-app-bg: #eef1f4;
+  --color-app-panel: #ffffff;
+  --color-app-card: #ffffff;
+  --color-app-sidebar: #0a2533;
+  --color-app-sidebar-hover: #0f3344;
+  --color-app-sidebar-active: #134056;
+  --color-brand-primary: #0a2533;
+  --color-brand-income: #16a34a;
+  --color-brand-expense: #dc2626;
+  --color-brand-accent: #0d9488;
+  --color-brand-warn: #d97706;
 }
 
 @layer base {
   body {
-    @apply m-0 min-h-screen font-sans text-slate-200 antialiased;
-    background:
-      radial-gradient(ellipse 70% 45% at 10% -10%, rgb(99 102 241 / 0.12), transparent),
-      radial-gradient(ellipse 50% 40% at 95% 5%, rgb(255 45 85 / 0.08), transparent),
-      linear-gradient(180deg, #121212 0%, #161618 50%, #121212 100%);
+    @apply m-0 min-h-screen bg-app-bg font-sans text-slate-700 antialiased;
   }
 
   #root {
@@ -24,64 +25,101 @@
   }
 
   select option {
-    @apply bg-[#252528] text-slate-200;
+    @apply bg-white text-slate-800;
   }
 }
 
 @layer components {
   .app-card {
-    @apply rounded-2xl border border-white/[0.06] bg-[#252528]/95 shadow-xl shadow-black/40 backdrop-blur-md;
+    @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/60;
   }
 
   .app-kpi-card {
-    @apply rounded-2xl border border-white/[0.06] bg-[#252528] p-5 shadow-lg shadow-black/30;
+    @apply relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/60;
   }
 
   .app-table-head {
-    @apply bg-white/5 text-left text-slate-400;
+    @apply bg-slate-50 text-left text-slate-500;
   }
 
   .app-table-row {
-    @apply transition-colors hover:bg-white/5;
+    @apply border-b border-slate-100 transition-colors hover:bg-slate-50;
   }
 
   .app-input {
-    @apply w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 outline-none transition-all placeholder:text-slate-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20;
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-teal-600/40 focus:ring-2 focus:ring-teal-600/15;
   }
 
   .app-label {
-    @apply block text-sm font-medium text-slate-300;
+    @apply block text-sm font-medium text-slate-600;
   }
 
   .app-muted-box {
-    @apply rounded-xl border border-white/10 bg-white/5 text-slate-400;
+    @apply rounded-xl border border-slate-200 bg-slate-50 text-slate-500;
   }
 
   .app-stat-indigo {
-    @apply border border-indigo-500/25 bg-gradient-to-br from-indigo-500/20 to-indigo-600/5 text-indigo-200 shadow-lg shadow-indigo-500/15;
+    @apply border border-teal-200 bg-teal-50 text-teal-900;
   }
 
   .app-stat-income {
-    @apply border border-indigo-500/20 bg-[#252528] text-white;
+    @apply border border-emerald-200 bg-white text-slate-900;
   }
 
   .app-stat-expense {
-    @apply border border-[#ff2d55]/25 bg-[#252528] text-white;
+    @apply border border-rose-200 bg-white text-slate-900;
   }
 
   .app-stat-green {
-    @apply border border-indigo-500/20 bg-gradient-to-br from-indigo-500/15 to-violet-600/10 text-indigo-200 shadow-lg shadow-indigo-500/10;
+    @apply border border-emerald-200 bg-emerald-50 text-emerald-900;
   }
 
   .app-stat-red {
-    @apply border border-[#ff2d55]/25 bg-gradient-to-br from-[#ff2d55]/15 to-pink-600/10 text-pink-200 shadow-lg shadow-[#ff2d55]/10;
+    @apply border border-rose-200 bg-rose-50 text-rose-900;
   }
 
   .app-stat-amber {
-    @apply border border-amber-500/20 bg-gradient-to-br from-amber-500/15 to-orange-500/10 text-amber-200 shadow-lg shadow-amber-500/10;
+    @apply border border-amber-200 bg-amber-50 text-amber-900;
   }
 
   .app-nav-active {
-    @apply bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/30;
+    @apply bg-app-sidebar-active text-white;
+  }
+
+  .app-heading {
+    @apply text-slate-900;
+  }
+
+  .app-muted {
+    @apply text-slate-500;
+  }
+
+  .app-link {
+    @apply text-teal-700 hover:text-teal-800 hover:underline;
+  }
+
+  .app-banner-ok {
+    @apply rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800;
+  }
+
+  .app-banner-warn {
+    @apply rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900;
+  }
+
+  .app-banner-danger {
+    @apply rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800;
+  }
+
+  @keyframes atualizacao-indeterminate {
+    0% {
+      transform: translateX(-120%);
+    }
+    100% {
+      transform: translateX(320%);
+    }
+  }
+
+  .atualizacao-indeterminate {
+    animation: atualizacao-indeterminate 1.1s ease-in-out infinite;
   }
 }

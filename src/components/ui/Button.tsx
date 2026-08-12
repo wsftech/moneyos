@@ -2,12 +2,12 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 const variants = {
   primary:
-    "bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-400 hover:to-violet-500",
+    "bg-app-sidebar text-white shadow-sm shadow-slate-300/50 hover:bg-[#0f3344]",
   secondary:
-    "border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10 hover:border-white/25",
+    "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300",
   danger:
-    "bg-gradient-to-r from-[#ff2d55] to-pink-600 text-white shadow-lg shadow-[#ff2d55]/25 hover:from-[#ff4d6d] hover:to-pink-500",
-  ghost: "text-slate-400 hover:bg-white/5 hover:text-slate-200",
+    "bg-rose-600 text-white shadow-sm shadow-rose-200 hover:bg-rose-500",
+  ghost: "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
 };
 
 type Variant = keyof typeof variants;

@@ -14,6 +14,7 @@ import type {
   TipoContaPagarReceber,
   Transacao,
 } from "../types";
+import { arredondarMoeda } from "../utils/format";
 
 export interface ContaPagarReceberInput {
   descricao: string;
@@ -24,6 +25,7 @@ export interface ContaPagarReceberInput {
   status?: StatusContaPagarReceber;
   categoria_id?: number | null;
   mes_referencia?: string | null;
+  contato_id?: number | null;
 }
 
 export interface ContaPagarReceberFilters {
@@ -51,6 +53,7 @@ interface ContaPagarReceberRow {
   transacao_id: number | null;
   categoria_id: number | null;
   mes_referencia: string | null;
+  contato_id: number | null;
 }
 
 export function mesReferenciaOrcamentoConta(item: {
@@ -61,7 +64,10 @@ export function mesReferenciaOrcamentoConta(item: {
 }
 
 function mapContaPagarReceber(row: ContaPagarReceberRow): ContaPagarReceber {
-  return row;
+  return {
+    ...row,
+    contato_id: row.contato_id ?? null,
+  };
 }
 
 function buildFilters(filters: ContaPagarReceberFilters = {}): {
@@ -140,8 +146,8 @@ export async function createContaPagarReceber(
     const status = input.status ?? calcularStatus(input.vencimento, "pendente");
     const result = await db.execute(
       `INSERT INTO contas_a_pagar_receber
-       (descricao, valor, vencimento, tipo, contexto, status, categoria_id, mes_referencia)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       (descricao, valor, vencimento, tipo, contexto, status, categoria_id, mes_referencia, contato_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         input.descricao,
         input.valor,
@@ -151,6 +157,7 @@ export async function createContaPagarReceber(
         status,
         input.categoria_id ?? null,
         input.mes_referencia ?? null,
+        input.contato_id ?? null,
       ],
     );
     const item = await getContaPagarReceber(result.lastInsertId as number);
@@ -182,8 +189,8 @@ export async function updateContaPagarReceber(
     await db.execute(
       `UPDATE contas_a_pagar_receber
        SET descricao = $1, valor = $2, vencimento = $3, tipo = $4, contexto = $5, status = $6,
-           categoria_id = $7, mes_referencia = $8
-       WHERE id = $9`,
+           categoria_id = $7, mes_referencia = $8, contato_id = $9
+       WHERE id = $10`,
       [
         input.descricao ?? existing.descricao,
         input.valor ?? existing.valor,
@@ -193,6 +200,7 @@ export async function updateContaPagarReceber(
         status,
         input.categoria_id !== undefined ? input.categoria_id : existing.categoria_id,
         input.mes_referencia !== undefined ? input.mes_referencia : existing.mes_referencia,
+        input.contato_id !== undefined ? input.contato_id : existing.contato_id,
         id,
       ],
     );
@@ -340,4 +348,127 @@ function calcularStatus(
   if (statusAtual === "pago") return "pago";
   if (vencimento < todayIsoDate()) return "atrasado";
   return "pendente";
+}
+
+export interface ResumoMensalPagarReceber {
+  mes: string;
+  a_pagar: number;
+  a_receber: number;
+  liquido: number;
+  qtd_pagar: number;
+  qtd_receber: number;
+  a_pagar_atrasado: number;
+  a_receber_atrasado: number;
+}
+
+export interface ComparativoMensalPagarReceber {
+  mes: string;
+  a_pagar: number;
+  a_receber: number;
+}
+
+/** Totais em aberto (pendente/atrasado) com vencimento no mês. */
+export async function getResumoMensalPagarReceber(
+  mes: string,
+  contexto?: ContextoVisualizacao,
+): Promise<ResumoMensalPagarReceber> {
+  await sincronizarStatusContasPagarReceber();
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const filter = buildContextoFilter(contexto);
+    const { query, params } = applyContextoFilter(
+      `SELECT tipo, status, SUM(valor) AS total, COUNT(*) AS qtd
+       FROM contas_a_pagar_receber
+       WHERE status IN ('pendente', 'atrasado')
+         AND vencimento LIKE $1${filter.clause}
+       GROUP BY tipo, status`,
+      filter,
+      2,
+    );
+    const rows = await db.select<
+      { tipo: TipoContaPagarReceber; status: StatusContaPagarReceber; total: number | string; qtd: number | string }[]
+    >(query, [`${mes}%`, ...params]);
+
+    let a_pagar = 0;
+    let a_receber = 0;
+    let qtd_pagar = 0;
+    let qtd_receber = 0;
+    let a_pagar_atrasado = 0;
+    let a_receber_atrasado = 0;
+
+    for (const row of rows) {
+      const total = Number(row.total) || 0;
+      const qtd = Number(row.qtd) || 0;
+      if (row.tipo === "pagar") {
+        a_pagar += total;
+        qtd_pagar += qtd;
+        if (row.status === "atrasado") a_pagar_atrasado += total;
+      } else {
+        a_receber += total;
+        qtd_receber += qtd;
+        if (row.status === "atrasado") a_receber_atrasado += total;
+      }
+    }
+
+    return {
+      mes,
+      a_pagar: arredondarMoeda(a_pagar),
+      a_receber: arredondarMoeda(a_receber),
+      liquido: arredondarMoeda(a_receber - a_pagar),
+      qtd_pagar,
+      qtd_receber,
+      a_pagar_atrasado: arredondarMoeda(a_pagar_atrasado),
+      a_receber_atrasado: arredondarMoeda(a_receber_atrasado),
+    };
+  });
+}
+
+/** Comparativo mensal de valores em aberto por vencimento. */
+export async function getComparativoMensalPagarReceber(
+  meses: string[],
+  contexto?: ContextoVisualizacao,
+): Promise<ComparativoMensalPagarReceber[]> {
+  if (meses.length === 0) return [];
+  await sincronizarStatusContasPagarReceber();
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const filter = buildContextoFilter(contexto);
+    const inicio = `${meses[0]}-01`;
+    const ultimo = meses[meses.length - 1];
+    const [ano, mesNum] = ultimo.split("-").map(Number);
+    const fimDia = new Date(ano, mesNum, 0).getDate();
+    const fim = `${ultimo}-${String(fimDia).padStart(2, "0")}`;
+
+    const { query, params } = applyContextoFilter(
+      `SELECT substr(vencimento, 1, 7) AS mes, tipo, SUM(valor) AS total
+       FROM contas_a_pagar_receber
+       WHERE status IN ('pendente', 'atrasado')
+         AND vencimento >= $1 AND vencimento <= $2${filter.clause}
+       GROUP BY substr(vencimento, 1, 7), tipo`,
+      filter,
+      3,
+    );
+    const rows = await db.select<
+      { mes: string; tipo: TipoContaPagarReceber; total: number | string }[]
+    >(query, [inicio, fim, ...params]);
+
+    const byMes = new Map<string, { a_pagar: number; a_receber: number }>();
+    for (const m of meses) byMes.set(m, { a_pagar: 0, a_receber: 0 });
+    for (const row of rows) {
+      const bucket = byMes.get(row.mes);
+      if (!bucket) continue;
+      const total = Number(row.total) || 0;
+      if (row.tipo === "pagar") bucket.a_pagar += total;
+      else bucket.a_receber += total;
+    }
+
+    return meses.map((mes) => {
+      const b = byMes.get(mes)!;
+      return {
+        mes,
+        a_pagar: arredondarMoeda(b.a_pagar),
+        a_receber: arredondarMoeda(b.a_receber),
+      };
+    });
+  });
 }

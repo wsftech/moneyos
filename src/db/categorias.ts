@@ -130,3 +130,100 @@ export async function deleteCategoria(id: number): Promise<void> {
     await db.execute("DELETE FROM categorias WHERE id = $1", [id]);
   });
 }
+
+export type TipoCategoriaDivida = "financiamento" | "emprestimo";
+
+const CATEGORIA_DIVIDA_PADRAO: Record<
+  TipoCategoriaDivida,
+  { nome: string; cor: string }
+> = {
+  financiamento: { nome: "Financiamento", cor: "#64748b" },
+  emprestimo: { nome: "Empréstimo", cor: "#78716c" },
+};
+
+/** Garante categoria de despesa padrão para dívidas parceladas entrarem no orçamento. */
+export async function ensureCategoriaDivida(
+  tipo: TipoCategoriaDivida,
+  contexto: Contexto,
+): Promise<Categoria> {
+  const padrao = CATEGORIA_DIVIDA_PADRAO[tipo];
+  const existentes = await listCategorias(contexto);
+  const found = existentes.find(
+    (c) =>
+      c.tipo === "despesa" &&
+      c.nome.toLowerCase() === padrao.nome.toLowerCase() &&
+      (c.contexto === contexto || c.contexto === "ambos"),
+  );
+  if (found) return found;
+  return createCategoria({
+    nome: padrao.nome,
+    tipo: "despesa",
+    contexto,
+    cor: padrao.cor,
+  });
+}
+
+/** Preenche categoria em financiamentos/empréstimos antigos sem vínculo. */
+export async function backfillCategoriasDividasSemCategoria(
+  contexto?: ContextoVisualizacao,
+): Promise<number> {
+  const { getDatabase } = await import("./connection");
+  const { garantirOrcamentoParcelaDivida } = await import("./orcamentos");
+  const { mesAtual } = await import("../utils/format");
+
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const filterFin = contexto && contexto !== "consolidado" ? " AND contexto = $1" : "";
+    const params = contexto && contexto !== "consolidado" ? [contexto] : [];
+
+    const fins = await db.select<
+      { id: number; contexto: Contexto; descricao: string; valor_parcela: number }[]
+    >(
+      `SELECT id, contexto, descricao, valor_parcela FROM financiamentos
+       WHERE ativo = 1 AND categoria_id IS NULL${filterFin}`,
+      params,
+    );
+    const emps = await db.select<
+      { id: number; contexto: Contexto; descricao: string; valor_parcela: number }[]
+    >(
+      `SELECT id, contexto, descricao, valor_parcela FROM emprestimos
+       WHERE ativo = 1 AND categoria_id IS NULL${filterFin}`,
+      params,
+    );
+
+    let atualizados = 0;
+    const mes = mesAtual();
+
+    for (const f of fins) {
+      const cat = await ensureCategoriaDivida("financiamento", f.contexto);
+      await db.execute("UPDATE financiamentos SET categoria_id = $1 WHERE id = $2", [
+        cat.id,
+        f.id,
+      ]);
+      await garantirOrcamentoParcelaDivida({
+        descricao: f.descricao,
+        categoria_id: cat.id,
+        contexto: f.contexto,
+        valor_parcela: f.valor_parcela,
+        mes_referencia: mes,
+      });
+      atualizados++;
+    }
+    for (const e of emps) {
+      const cat = await ensureCategoriaDivida("emprestimo", e.contexto);
+      await db.execute("UPDATE emprestimos SET categoria_id = $1 WHERE id = $2", [
+        cat.id,
+        e.id,
+      ]);
+      await garantirOrcamentoParcelaDivida({
+        descricao: e.descricao,
+        categoria_id: cat.id,
+        contexto: e.contexto,
+        valor_parcela: e.valor_parcela,
+        mes_referencia: mes,
+      });
+      atualizados++;
+    }
+    return atualizados;
+  });
+}

@@ -1,7 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { ContextoBadge } from "../components/ContextoSelector";
 import { Button } from "../components/ui/Button";
-import { EmptyState, ErrorAlert, LoadingSpinner } from "../components/ui/Feedback";
+import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
 import { Input, Select } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
@@ -95,6 +95,10 @@ export function CategoriasPage() {
 
   return (
     <div>
+      <PageHeader
+        title="Categorias"
+        subtitle="Organize receitas (ativos) e despesas (passivos)"
+      />
       <div className="mb-4 flex flex-wrap gap-2">
         {listTemplatesDisponiveis().map((t) => (
           <Button key={t.id} variant="secondary" onClick={() => void handleImportarTemplate(t.id)}>
@@ -185,11 +189,11 @@ function CategoriaSecao({
       style={{ boxShadow: `0 4px 24px ${accent}12` }}
     >
       <div
-        className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4"
+        className="flex items-center justify-between border-b border-slate-200 px-5 py-4"
         style={{ background: `linear-gradient(135deg, ${accent}12 0%, transparent 100%)` }}
       >
         <div>
-          <h2 className="font-semibold text-white">{titulo}</h2>
+          <h2 className="font-semibold text-slate-900">{titulo}</h2>
           <p className="text-xs text-slate-500">{subtitulo}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -210,7 +214,7 @@ function CategoriaSecao({
           Nenhuma categoria de {titulo.toLowerCase()}.
         </p>
       ) : (
-        <ul className="divide-y divide-white/[0.06]">
+        <ul className="divide-y divide-slate-100">
           {categorias.map((cat) => (
             <li key={cat.id} className="flex items-center justify-between gap-3 px-5 py-3">
               <div className="flex min-w-0 items-center gap-3">
@@ -221,7 +225,7 @@ function CategoriaSecao({
                   {cat.icone ?? (cat.tipo === "receita" ? "↑" : "↓")}
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-100">{cat.nome}</p>
+                  <p className="truncate font-medium text-slate-900">{cat.nome}</p>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                     {contexto === "consolidado" && cat.contexto !== "ambos" && (
                       <ContextoBadge itemContexto={cat.contexto} />
@@ -238,7 +242,7 @@ function CategoriaSecao({
                 </Button>
                 <Button
                   variant="ghost"
-                  className="px-2 py-1 text-rose-400"
+                  className="px-2 py-1 text-rose-600"
                   onClick={() => onExcluir(cat.id)}
                 >
                   Excluir
@@ -350,12 +354,12 @@ function CategoriaModal({
               className={`rounded-xl border p-3 text-left transition-all ${
                 tipo === opt.value
                   ? opt.value === "receita"
-                    ? "border-indigo-500/40 bg-indigo-500/15 ring-1 ring-indigo-500/30"
-                    : "border-[#ff2d55]/40 bg-[#ff2d55]/10 ring-1 ring-[#ff2d55]/30"
-                  : "border-white/10 bg-white/5 hover:border-white/20"
+                    ? "border-emerald-300 bg-emerald-50 ring-1 ring-emerald-200"
+                    : "border-rose-300 bg-rose-50 ring-1 ring-rose-200"
+                  : "border-slate-200 bg-slate-50 hover:border-slate-300"
               }`}
             >
-              <span className="text-sm font-semibold text-white">{opt.label}</span>
+              <span className="text-sm font-semibold text-slate-900">{opt.label}</span>
               <p className="mt-1 text-[11px] leading-snug text-slate-500">{opt.descricao}</p>
             </button>
           ))}
@@ -386,14 +390,14 @@ function CategoriaModal({
         <Input label="Ícone (emoji opcional)" value={icone} onChange={(e) => setIcone(e.target.value)} />
 
         <div>
-          <p className="mb-2 text-sm font-medium text-slate-300">Cor</p>
+          <p className="mb-2 text-sm font-medium text-slate-600">Cor</p>
           <div className="flex flex-wrap gap-2">
             {cores.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => setCor(c)}
-                className={`h-8 w-8 rounded-full border-2 ${cor === c ? "border-white" : "border-transparent"}`}
+                className={`h-8 w-8 rounded-full border-2 ring-offset-2 ${cor === c ? "border-slate-900 ring-2 ring-slate-900/30" : "border-transparent"}`}
                 style={{ backgroundColor: c }}
               />
             ))}

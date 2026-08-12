@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS contas (
     saldo_inicial REAL NOT NULL DEFAULT 0,
     cor TEXT NOT NULL DEFAULT '#6366f1',
     icone TEXT,
+    logo_path TEXT,
     ativo INTEGER NOT NULL DEFAULT 1
 );
 

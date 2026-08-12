@@ -2,8 +2,8 @@ import { useContexto } from "../contexts/ContextoContext";
 import type { ContextoVisualizacao } from "../types";
 
 const OPCOES: { valor: ContextoVisualizacao; label: string; cor: string }[] = [
-  { valor: "pessoal", label: "Pessoal", cor: "bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)]" },
-  { valor: "empresa", label: "Empresa", cor: "bg-[#bf5af2] shadow-[0_0_8px_rgba(191,90,242,0.6)]" },
+  { valor: "pessoal", label: "Pessoal", cor: "bg-teal-500" },
+  { valor: "empresa", label: "Empresa", cor: "bg-violet-500" },
   { valor: "consolidado", label: "Consolidado", cor: "bg-slate-400" },
 ];
 
@@ -11,7 +11,7 @@ export function ContextoSelector() {
   const { contexto, setContexto, loading } = useContexto();
 
   return (
-    <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 p-1">
+    <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
       {OPCOES.map((opcao) => (
         <button
           key={opcao.valor}
@@ -20,8 +20,8 @@ export function ContextoSelector() {
           onClick={() => void setContexto(opcao.valor)}
           className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
             contexto === opcao.valor
-              ? "bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-500/30"
-              : "text-slate-400 hover:text-slate-200"
+              ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
+              : "text-slate-500 hover:text-slate-800"
           }`}
         >
           <span className={`h-2 w-2 rounded-full ${opcao.cor}`} />
@@ -38,8 +38,8 @@ export function ContextoBadge({ itemContexto }: { itemContexto: "pessoal" | "emp
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
         isPessoal
-          ? "bg-indigo-500/15 text-indigo-300 ring-1 ring-indigo-500/30"
-          : "bg-[#bf5af2]/15 text-purple-300 ring-1 ring-[#bf5af2]/30"
+          ? "bg-teal-50 text-teal-800 ring-1 ring-teal-200"
+          : "bg-violet-50 text-violet-800 ring-1 ring-violet-200"
       }`}
     >
       {isPessoal ? "Pessoal" : "Empresa"}

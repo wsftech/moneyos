@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -21,14 +21,10 @@ import { findCategoriaById, listCategorias } from "../db/categorias";
 import { getDreSimplificada } from "../db/dre";
 import { getRelatorioEndividamento } from "../db/endividamento";
 import { getFluxoProjetado12Meses } from "../db/fluxoProjetado";
-import {
-  getComparativoMensal,
-  getGastoPorCategoria,
-  listTransacoesParaExportacao,
-  type GastoPorCategoriaResumo,
-} from "../db/transacoes";
+import { getComparativoMensal, getGastoPorCategoria, listTransacoesParaExportacao, type GastoPorCategoriaResumo } from "../db/transacoes";
+import { getResultadoPorTag } from "../db/tags";
 import { getErrorMessage } from "../db/utils";
-import type { DreSimplificada, FluxoProjetado12Meses, RelatorioEndividamento } from "../types";
+import type { DreSimplificada, FluxoProjetado12Meses, RelatorioEndividamento, ResultadoPorTag } from "../types";
 import { intervaloDoMes } from "../utils/dates";
 import {
   downloadCsv,
@@ -71,19 +67,21 @@ export function RelatoriosPage() {
   const [dre, setDre] = useState<DreSimplificada | null>(null);
   const [endividamento, setEndividamento] = useState<RelatorioEndividamento | null>(null);
   const [fluxo12, setFluxo12] = useState<FluxoProjetado12Meses | null>(null);
+  const [resultadoTags, setResultadoTags] = useState<ResultadoPorTag[]>([]);
 
   const carregar = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const meses = mesesAnteriores(6);
-      const [gastos, comp, todasCat, dreMes, endiv, fluxo] = await Promise.all([
+      const [gastos, comp, todasCat, dreMes, endiv, fluxo, tagsMes] = await Promise.all([
         getGastoPorCategoria(mes, contexto),
         getComparativoMensal(meses, contexto),
         listCategorias("consolidado"),
         getDreSimplificada(mes, contexto),
         getRelatorioEndividamento(contexto, mes),
         getFluxoProjetado12Meses(contexto),
+        getResultadoPorTag(mes, contexto),
       ]);
 
       setGastosCategoria(mapGastosRelatorio(gastos, todasCat));
@@ -96,6 +94,7 @@ export function RelatoriosPage() {
       setDre(dreMes);
       setEndividamento(endiv);
       setFluxo12(fluxo);
+      setResultadoTags(tagsMes);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -166,7 +165,7 @@ export function RelatoriosPage() {
 
       {endividamento && (
         <section className="mb-6 app-card p-5">
-          <h2 className="mb-1 font-semibold text-slate-100">Endividamento</h2>
+          <h2 className="mb-1 font-semibold text-slate-900">Endividamento</h2>
           <p className="mb-4 text-xs text-slate-500">
             Dívida vs caixa vs patrimônio — financiamentos, empréstimos e faturas de cartão
           </p>
@@ -175,57 +174,55 @@ export function RelatoriosPage() {
             <IndicadorCard
               label="Patrimônio líquido"
               value={formatCurrency(endividamento.patrimonio.patrimonio_liquido)}
-              hint={`Contas ${formatCurrency(endividamento.patrimonio.saldo_contas)} − Dívidas ${formatCurrency(endividamento.total_dividas)}`}
+              hint={`Contas ${formatCurrency(endividamento.patrimonio.saldo_contas)} - D—vidas ${formatCurrency(endividamento.total_dividas)}`}
               tone={endividamento.patrimonio.patrimonio_liquido >= 0 ? "green" : "red"}
             />
             <IndicadorCard
               label="Caixa disponível"
               value={formatCurrency(endividamento.patrimonio.caixa_disponivel)}
-              hint="Exclui cartão e investimentos"
+              hint="Banco, dinheiro e poupan—a (exclui cart—o e investimentos)"
             />
             <IndicadorCard
               label="Saldo devedor"
               value={formatCurrency(endividamento.total_dividas)}
-              hint={`Faturas cartão: ${formatCurrency(endividamento.total_faturas_cartao)}`}
+              hint={`Parceladas ${formatCurrency(endividamento.patrimonio.dividas_parceladas)} + Cart—o ${formatCurrency(endividamento.total_faturas_cartao)}`}
               tone="red"
             />
             <IndicadorCard
-              label={`Parcelas em ${labelMes(mes)}`}
+              label={`Obrigações em ${labelMes(mes)}`}
               value={formatCurrency(endividamento.parcelas_mes_atual)}
-              hint={
-                endividamento.indicadores.cobertura_caixa != null
-                  ? `Caixa cobre ${endividamento.indicadores.cobertura_caixa.toFixed(1)}× a dívida parcelada`
-                  : "Sem dívidas parceladas"
-              }
+              hint="Parcelas de contratos + faturas com vencimento no m—s"
             />
           </div>
 
           <div className="mb-6 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
               <p className="text-xs text-slate-500">Cobertura do caixa</p>
-              <p className="mt-1 font-semibold text-slate-200">
+              <p className="mt-1 font-semibold text-slate-700">
                 {endividamento.indicadores.cobertura_caixa != null
                   ? `${endividamento.indicadores.cobertura_caixa.toFixed(2)}×`
                   : "—"}
               </p>
-              <p className="mt-0.5 text-xs text-slate-500">Caixa ÷ saldo devedor</p>
+              <p className="mt-0.5 text-xs text-slate-500">Caixa — d—vida total (parceladas + cart—o)</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm">
-              <p className="text-xs text-slate-500">Dívida / patrimônio em contas</p>
-              <p className="mt-1 font-semibold text-slate-200">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+              <p className="text-xs text-slate-500">D—vida / ativos em contas</p>
+              <p className="mt-1 font-semibold text-slate-700">
                 {endividamento.indicadores.divida_sobre_patrimonio != null
                   ? `${(endividamento.indicadores.divida_sobre_patrimonio * 100).toFixed(0)}%`
                   : "—"}
               </p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm">
-              <p className="text-xs text-slate-500">Meses de caixa p/ quitar dívida</p>
-              <p className="mt-1 font-semibold text-slate-200">
-                {endividamento.indicadores.meses_caixa_para_divida != null
-                  ? `${endividamento.indicadores.meses_caixa_para_divida.toFixed(1)} meses`
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+              <p className="text-xs text-slate-500">Runway de caixa</p>
+              <p className="mt-1 font-semibold text-slate-700">
+                {endividamento.indicadores.runway_meses != null
+                  ? `${endividamento.indicadores.runway_meses.toFixed(1)} meses`
                   : "—"}
               </p>
-              <p className="mt-0.5 text-xs text-slate-500">Com base nas parcelas do mês</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Caixa — obrigações do mês (quanto tempo o caixa cobre)
+              </p>
             </div>
           </div>
 
@@ -247,10 +244,10 @@ export function RelatoriosPage() {
                     <th className="px-3 py-2 text-left font-medium">Próx. venc.</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/10">
+                <tbody className="divide-y divide-slate-100">
                   {endividamento.itens.map((item) => (
                     <tr key={`${item.tipo}-${item.id}`}>
-                      <td className="px-3 py-2 text-slate-200">{item.descricao}</td>
+                      <td className="px-3 py-2 text-slate-700">{item.descricao}</td>
                       <td className="px-3 py-2 capitalize text-slate-400">
                         {item.tipo === "fatura_cartao" ? "Fatura cartão" : item.tipo}
                       </td>
@@ -259,7 +256,7 @@ export function RelatoriosPage() {
                           <ContextoBadge itemContexto={item.contexto} />
                         </td>
                       )}
-                      <td className="px-3 py-2 text-right font-medium text-rose-300">
+                      <td className="px-3 py-2 text-right font-medium text-rose-700">
                         {formatCurrency(item.valor_restante)}
                       </td>
                       <td className="px-3 py-2 text-right text-slate-400">
@@ -287,7 +284,7 @@ export function RelatoriosPage() {
 
       {fluxo12 && (
         <section className="mb-6 app-card p-5">
-          <h2 className="mb-1 font-semibold text-slate-100">Fluxo de caixa — 12 meses</h2>
+          <h2 className="mb-1 font-semibold text-slate-900">Fluxo de caixa — 12 meses</h2>
           <p className="mb-4 text-xs text-slate-500">
             Projeção mensal com vencimentos, recorrentes e faturas de cartão
           </p>
@@ -348,17 +345,20 @@ export function RelatoriosPage() {
 
       {dre && (
         <section className="mb-6 app-card p-5">
-          <h2 className="mb-4 font-semibold text-slate-100">
-            DRE simplificada — {labelMes(mes)}
+          <h2 className="mb-1 font-semibold text-slate-900">
+            Resultado do m—s — {labelMes(mes)}
           </h2>
+          <p className="mb-4 text-xs text-slate-500">
+            Regime de caixa: receitas e despesas efetivadas no per—odo (n—o — DRE cont—bil)
+          </p>
           <div className="grid gap-6 lg:grid-cols-2">
             <div>
-              <h3 className="mb-2 text-sm font-medium text-emerald-400">Receitas</h3>
+              <h3 className="mb-2 text-sm font-medium text-emerald-600">Receitas</h3>
               {dre.receitas.length === 0 ? (
                 <p className="text-sm text-slate-500">Sem receitas no período.</p>
               ) : (
                 <table className="w-full text-sm">
-                  <tbody className="divide-y divide-white/10">
+                  <tbody className="divide-y divide-slate-100">
                     {dre.receitas.map((r) => (
                       <tr key={r.nome}>
                         <td className="py-1.5">
@@ -368,7 +368,7 @@ export function RelatoriosPage() {
                         <td className="py-1.5 text-right">{formatCurrency(r.total)}</td>
                       </tr>
                     ))}
-                    <tr className="font-semibold text-emerald-400">
+                    <tr className="font-semibold text-emerald-600">
                       <td className="pt-2">Total receitas</td>
                       <td className="pt-2 text-right">{formatCurrency(dre.total_receitas)}</td>
                     </tr>
@@ -377,12 +377,12 @@ export function RelatoriosPage() {
               )}
             </div>
             <div>
-              <h3 className="mb-2 text-sm font-medium text-rose-400">Despesas</h3>
+              <h3 className="mb-2 text-sm font-medium text-rose-600">Despesas</h3>
               {dre.despesas.length === 0 ? (
                 <p className="text-sm text-slate-500">Sem despesas no período.</p>
               ) : (
                 <table className="w-full text-sm">
-                  <tbody className="divide-y divide-white/10">
+                  <tbody className="divide-y divide-slate-100">
                     {dre.despesas.map((d) => (
                       <tr key={d.nome}>
                         <td className="py-1.5">
@@ -392,7 +392,7 @@ export function RelatoriosPage() {
                         <td className="py-1.5 text-right">{formatCurrency(d.total)}</td>
                       </tr>
                     ))}
-                    <tr className="font-semibold text-rose-400">
+                    <tr className="font-semibold text-rose-600">
                       <td className="pt-2">Total despesas</td>
                       <td className="pt-2 text-right">{formatCurrency(dre.total_despesas)}</td>
                     </tr>
@@ -401,9 +401,9 @@ export function RelatoriosPage() {
               )}
             </div>
           </div>
-          <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-4">
-            <span className="font-semibold text-slate-200">Resultado do período</span>
-            <span className={`text-lg font-bold ${dre.resultado >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+          <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-4">
+            <span className="font-semibold text-slate-700">Resultado do período</span>
+            <span className={`text-lg font-bold ${dre.resultado >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
               {formatCurrency(dre.resultado)}
             </span>
           </div>
@@ -412,7 +412,7 @@ export function RelatoriosPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="app-card p-5">
-          <h2 className="mb-4 font-semibold text-slate-100">
+          <h2 className="mb-4 font-semibold text-slate-900">
             Gastos por categoria — {labelMes(mes)}
           </h2>
           {gastosCategoria.length === 0 ? (
@@ -435,7 +435,7 @@ export function RelatoriosPage() {
         </section>
 
         <section className="app-card p-5">
-          <h2 className="mb-4 font-semibold text-slate-100">Comparativo — últimos 6 meses</h2>
+          <h2 className="mb-4 font-semibold text-slate-900">Comparativo — últimos 6 meses</h2>
           {comparativoChart.length === 0 ? (
             <p className="text-sm text-slate-500">Sem dados para comparar.</p>
           ) : (
@@ -454,9 +454,62 @@ export function RelatoriosPage() {
         </section>
       </div>
 
+      <section className="mb-6 app-card p-5">
+        <h2 className="mb-1 font-semibold text-slate-900">
+          Resultado por tag — {labelMes(mes)}
+        </h2>
+        <p className="mb-4 text-xs text-slate-500">
+          Centro de custo leve: receitas e despesas efetivadas com tag no per—odo
+        </p>
+        {resultadoTags.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            Nenhuma transação com tag neste mês. Vincule tags nas transações para ver o P&amp;L aqui.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead className="app-table-head">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">Tag</th>
+                  <th className="px-3 py-2 text-right font-medium">Receitas</th>
+                  <th className="px-3 py-2 text-right font-medium">Despesas</th>
+                  <th className="px-3 py-2 text-right font-medium">Resultado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {resultadoTags.map((t) => (
+                  <tr key={t.tag_id}>
+                    <td className="px-3 py-2">
+                      <span
+                        className="mr-2 inline-block h-2 w-2 rounded-full"
+                        style={{ backgroundColor: t.tag_cor }}
+                      />
+                      {t.tag_nome}
+                    </td>
+                    <td className="px-3 py-2 text-right text-emerald-600">
+                      {formatCurrency(t.receitas)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-rose-600">
+                      {formatCurrency(t.despesas)}
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-right font-semibold ${
+                        t.resultado >= 0 ? "text-emerald-600" : "text-rose-600"
+                      }`}
+                    >
+                      {formatCurrency(t.resultado)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {gastosCategoria.length > 0 && (
         <section className="mt-6 app-card p-5">
-          <h2 className="mb-4 font-semibold text-slate-100">Detalhamento</h2>
+          <h2 className="mb-4 font-semibold text-slate-900">Detalhamento</h2>
           <table className="w-full text-sm">
             <thead className="app-table-head">
               <tr>
@@ -464,7 +517,7 @@ export function RelatoriosPage() {
                 <th className="pb-2 font-medium text-right">Total</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className="divide-y divide-slate-100">
               {gastosCategoria.map((g) => (
                 <tr key={g.nome}>
                   <td className="py-2">
@@ -494,14 +547,14 @@ function IndicadorCard({
   tone?: "neutral" | "green" | "red" | "amber";
 }) {
   const valueClass = {
-    neutral: "text-white",
-    green: "text-emerald-400",
-    red: "text-rose-400",
-    amber: "text-amber-400",
+    neutral: "text-slate-900",
+    green: "text-emerald-600",
+    red: "text-rose-600",
+    amber: "text-amber-600",
   }[tone];
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <p className="text-xs text-slate-500">{label}</p>
       <p className={`mt-1 text-xl font-bold ${valueClass}`}>{value}</p>
       {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}

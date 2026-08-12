@@ -32,13 +32,13 @@ function labelStatus(status: StatusFaturaCartao | undefined): string {
 function statusClass(status: StatusFaturaCartao | undefined): string {
   switch (status) {
     case "aberta":
-      return "bg-cyan-500/15 text-cyan-300 ring-cyan-500/30";
+      return "bg-teal-50 text-teal-800 ring-1 ring-teal-200";
     case "fechada":
-      return "bg-amber-500/15 text-amber-300 ring-amber-500/30";
+      return "bg-amber-50 text-amber-800 ring-1 ring-amber-200";
     case "paga":
-      return "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30";
+      return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200";
     default:
-      return "bg-white/10 text-slate-400";
+      return "bg-slate-100 text-slate-500";
   }
 }
 
@@ -118,7 +118,7 @@ export function FaturaCartaoPage() {
         title={resumo?.conta_nome ?? "Cartão"}
         subtitle="Faturas, limite e pagamento"
         action={
-          <Link to="/configuracoes/contas">
+          <Link to="/contas">
             <Button variant="secondary">← Voltar às contas</Button>
           </Link>
         }
@@ -128,7 +128,7 @@ export function FaturaCartaoPage() {
         <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="app-card p-4">
             <p className="text-xs text-slate-500">Total em aberto</p>
-            <p className="text-xl font-bold text-rose-300">
+            <p className="text-xl font-bold text-rose-700">
               {formatCurrency(resumo.total_em_aberto)}
             </p>
           </div>
@@ -136,13 +136,13 @@ export function FaturaCartaoPage() {
             <>
               <div className="app-card p-4">
                 <p className="text-xs text-slate-500">Limite</p>
-                <p className="text-xl font-bold text-white">
+                <p className="text-xl font-bold text-slate-900">
                   {formatCurrency(resumo.limite_credito)}
                 </p>
               </div>
               <div className="app-card p-4">
                 <p className="text-xs text-slate-500">Limite disponível</p>
-                <p className="text-xl font-bold text-emerald-400">
+                <p className="text-xl font-bold text-emerald-600">
                   {formatCurrency(resumo.limite_disponivel ?? 0)}
                 </p>
               </div>
@@ -150,7 +150,7 @@ export function FaturaCartaoPage() {
           )}
           <div className="app-card p-4">
             <p className="text-xs text-slate-500">Fatura selecionada</p>
-            <p className="text-xl font-bold text-white">{formatCurrency(pendente)}</p>
+            <p className="text-xl font-bold text-slate-900">{formatCurrency(pendente)}</p>
             {faturaAtual && (
               <p className="mt-1 text-xs text-slate-500">Vence {formatDate(faturaAtual.vencimento)}</p>
             )}
@@ -200,23 +200,23 @@ export function FaturaCartaoPage() {
                 <th className="px-4 py-3 font-medium text-right">Valor</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className="divide-y divide-slate-100">
               {faturaAtual.itens.map((item) => (
                 <tr key={item.id} className="app-table-row">
                   <td className="px-4 py-3 whitespace-nowrap">{formatDate(item.data)}</td>
                   <td className="px-4 py-3">{item.descricao}</td>
-                  <td className="px-4 py-3 text-right font-medium text-rose-300">
+                  <td className="px-4 py-3 text-right font-medium text-rose-700">
                     {formatCurrency(item.valor)}
                   </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t border-white/10 font-semibold">
-                <td colSpan={2} className="px-4 py-3 text-right text-slate-300">
+              <tr className="border-t border-slate-200 font-semibold">
+                <td colSpan={2} className="px-4 py-3 text-right text-slate-600">
                   Total
                 </td>
-                <td className="px-4 py-3 text-right text-white">
+                <td className="px-4 py-3 text-right text-slate-900">
                   {formatCurrency(faturaAtual.total)}
                 </td>
               </tr>
@@ -310,7 +310,7 @@ function PagarFaturaModal({
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
         <p className="text-sm text-slate-400">
-          Será registrada uma <strong className="text-slate-200">transferência</strong> da conta
+          Será registrada uma <strong className="text-slate-700">transferência</strong> da conta
           bancária para o cartão — sem nova despesa no relatório.
         </p>
         <Select

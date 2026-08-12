@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="WSF Money">
+  <rect width="64" height="64" rx="16" fill="#0d9488"/>
+  <path
+    d="M14 18h8.2l5.4 16.6L33.2 18H41l-8.6 28h-8.4L14 18zm28.5 0H50v28h-7.5V18z"
+    fill="#ffffff"
+  />
+  <circle cx="46.5" cy="42" r="3.5" fill="#99f6e4"/>
+</svg>

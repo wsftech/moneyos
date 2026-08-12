@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ContextoBadge } from "../components/ContextoSelector";
 import {
   ContextoFormSelect,
@@ -216,7 +216,7 @@ function EmprestimoCard({
     <div className="app-card p-5">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-slate-100">{fin.descricao}</h3>
+          <h3 className="font-semibold text-slate-900">{fin.descricao}</h3>
           <p className="text-sm text-slate-500">
             {fin.parcelas_pagas}/{fin.total_parcelas} parcelas · venc. dia{" "}
             {fin.data_primeira_parcela.slice(8, 10)} · ref. {formatCurrency(fin.valor_parcela)}/mês
@@ -228,12 +228,12 @@ function EmprestimoCard({
           )}
         </div>
         <div className="text-right">
-          <p className="text-lg font-bold text-slate-100">{formatCurrency(fin.valor_restante)}</p>
+          <p className="text-lg font-bold text-slate-900">{formatCurrency(fin.valor_restante)}</p>
           <p className="text-xs text-slate-500">restante</p>
         </div>
       </div>
 
-      <div className="mb-2 h-2 overflow-hidden rounded-full bg-white/10">
+      <div className="mb-2 h-2 overflow-hidden rounded-full bg-slate-100">
         <div
           className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all"
           style={{ width: `${fin.percentual_pago}%` }}
@@ -259,7 +259,7 @@ function EmprestimoCard({
                 <th className="px-3 py-2 font-medium text-right">Valor</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className="divide-y divide-slate-100">
               {pagas.map((p) => (
                 <tr key={p.id}>
                   <td className="px-3 py-2">{p.numero_parcela}</td>
@@ -299,7 +299,7 @@ function EmprestimoCard({
         <Button variant="secondary" className="py-1.5" onClick={onEdit}>
           Editar
         </Button>
-        <Button variant="ghost" className="text-rose-400" onClick={onDelete}>
+        <Button variant="ghost" className="text-rose-600" onClick={onDelete}>
           Excluir
         </Button>
       </div>
@@ -338,47 +338,46 @@ function CadastroModal({
   const [historicoCriarTransacoes, setHistoricoCriarTransacoes] = useState(true);
 
   useEffect(() => {
-    if (open) {
-      void Promise.all([listContas(contexto), listCategorias(contexto)]).then(([c, cat]) => {
-        setContas(c);
-        setCategorias(cat.filter((x) => x.tipo === "despesa"));
-      });
-    }
-  }, [open, contexto]);
+    if (!open) return;
 
-  useEffect(() => {
-    if (emprestimo) {
-      setFormContexto(emprestimo.contexto);
-      setDescricao(emprestimo.descricao);
-      setValorTotal(String(emprestimo.valor_total));
-      setValorParcela(String(emprestimo.valor_parcela));
-      setTotalParcelas(String(emprestimo.total_parcelas));
-      setDataPrimeira(emprestimo.data_primeira_parcela);
-      setContaId(String(emprestimo.conta_id));
-      setCategoriaId(emprestimo.categoria_id ? String(emprestimo.categoria_id) : "");
-      setObservacoes(emprestimo.observacoes ?? "");
-    } else {
-      setFormContexto(defaultFormContexto(contexto));
-      setDescricao("");
-      setValorTotal("");
-      setValorParcela("");
-      setTotalParcelas("");
-      setDataPrimeira(new Date().toISOString().slice(0, 10));
-      setContaId("");
-      setCategoriaId("");
-      setObservacoes("");
-      setHistoricoEnabled(false);
-      setHistoricoQtd(0);
-      setHistoricoRows([]);
-      setHistoricoCriarTransacoes(true);
-    }
-  }, [emprestimo, open, contexto]);
+    void (async () => {
+      const ctxForm = emprestimo?.contexto ?? defaultFormContexto(contexto);
+      const ctxDivida = ctxForm === "empresa" ? "empresa" : "pessoal";
+      const { ensureCategoriaDivida } = await import("../db/categorias");
+      const padrao = await ensureCategoriaDivida("emprestimo", ctxDivida);
+      const [c, cat] = await Promise.all([listContas(contexto), listCategorias(contexto)]);
+      setContas(c);
+      setCategorias(cat.filter((x) => x.tipo === "despesa"));
 
-  useEffect(() => {
-    if (!emprestimo && contas.length > 0 && !contaId) {
-      setContaId(String(contas[0].id));
-    }
-  }, [contas, contaId, emprestimo]);
+      if (emprestimo) {
+        setFormContexto(emprestimo.contexto);
+        setDescricao(emprestimo.descricao);
+        setValorTotal(String(emprestimo.valor_total));
+        setValorParcela(String(emprestimo.valor_parcela));
+        setTotalParcelas(String(emprestimo.total_parcelas));
+        setDataPrimeira(emprestimo.data_primeira_parcela);
+        setContaId(String(emprestimo.conta_id));
+        setCategoriaId(
+          emprestimo.categoria_id ? String(emprestimo.categoria_id) : String(padrao.id),
+        );
+        setObservacoes(emprestimo.observacoes ?? "");
+      } else {
+        setFormContexto(defaultFormContexto(contexto));
+        setDescricao("");
+        setValorTotal("");
+        setValorParcela("");
+        setTotalParcelas("");
+        setDataPrimeira(new Date().toISOString().slice(0, 10));
+        setContaId(c[0] ? String(c[0].id) : "");
+        setCategoriaId(String(padrao.id));
+        setObservacoes("");
+        setHistoricoEnabled(false);
+        setHistoricoQtd(0);
+        setHistoricoRows([]);
+        setHistoricoCriarTransacoes(true);
+      }
+    })();
+  }, [open, contexto, emprestimo]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -387,8 +386,8 @@ function CadastroModal({
     if (emprestimo) {
       const vt = parseFloat(valorTotal);
       const vp = parseFloat(valorParcela);
-      if (!descricao || !contaId || isNaN(vt) || vt <= 0 || isNaN(vp) || vp <= 0) {
-        setFormError("Preencha descrição, valor total e parcela de referência.");
+      if (!descricao || !contaId || !categoriaId || isNaN(vt) || vt <= 0 || isNaN(vp) || vp <= 0) {
+        setFormError("Preencha descrição, categoria, valor total e parcela de referência.");
         return;
       }
       setSaving(true);
@@ -398,7 +397,7 @@ function CadastroModal({
           valor_total: vt,
           valor_parcela: vp,
           conta_id: Number(contaId),
-          categoria_id: categoriaId ? Number(categoriaId) : null,
+          categoria_id: Number(categoriaId),
           observacoes: observacoes || null,
         });
         onSaved();
@@ -413,8 +412,19 @@ function CadastroModal({
     const vt = parseFloat(valorTotal);
     const vp = parseFloat(valorParcela);
     const tp = parseInt(totalParcelas, 10);
-    if (!descricao || !dataPrimeira || !contaId || isNaN(vt) || vt <= 0 || isNaN(vp) || vp <= 0 || isNaN(tp) || tp <= 0) {
-      setFormError("Preencha todos os campos obrigatórios.");
+    if (
+      !descricao ||
+      !dataPrimeira ||
+      !contaId ||
+      !categoriaId ||
+      isNaN(vt) ||
+      vt <= 0 ||
+      isNaN(vp) ||
+      vp <= 0 ||
+      isNaN(tp) ||
+      tp <= 0
+    ) {
+      setFormError("Preencha todos os campos obrigatórios, incluindo a categoria do orçamento.");
       return;
     }
 
@@ -433,7 +443,7 @@ function CadastroModal({
       total_parcelas: tp,
       contexto: resolveContexto(contexto, formContexto),
       conta_id: Number(contaId),
-      categoria_id: categoriaId ? Number(categoriaId) : null,
+      categoria_id: Number(categoriaId),
       data_primeira_parcela: dataPrimeira,
       observacoes: observacoes || null,
     };
@@ -574,13 +584,10 @@ function CadastroModal({
             options={contas.map((c) => ({ value: String(c.id), label: c.nome }))}
           />
           <Select
-            label="Categoria (orçamento)"
+            label="Categoria (orçamento) *"
             value={categoriaId}
             onChange={(e) => setCategoriaId(e.target.value)}
-            options={[
-              { value: "", label: "Sem categoria" },
-              ...categorias.map((c) => ({ value: String(c.id), label: c.nome })),
-            ]}
+            options={categorias.map((c) => ({ value: String(c.id), label: c.nome }))}
           />
         </div>
         {contexto === "consolidado" && !isEdit && (
@@ -588,8 +595,8 @@ function CadastroModal({
         )}
         <Textarea label="Observações" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
         <p className="text-xs text-slate-500">
-          Saldo devedor = valor total − soma dos pagamentos reais (igual ao app do banco).
-          A parcela de referência entra no orçamento mensal.
+          A parcela entra no orçamento da categoria escolhida (comprometido). Ao criar, um
+          envelope recorrente com o valor da parcela · gerado automaticamente.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
@@ -748,8 +755,8 @@ function PagamentoModal({
       onClose={onClose}
       title={
         modoHistorico
-          ? `Registrar pagamentos anteriores — ${emprestimo.descricao}`
-          : `Pagar parcelas — ${emprestimo.descricao}`
+          ? `Registrar pagamentos anteriores · ${emprestimo.descricao}`
+          : `Pagar parcelas · ${emprestimo.descricao}`
       }
       wide
     >
@@ -815,12 +822,12 @@ function PagamentoModal({
                   <th className="px-3 py-2 font-medium">Valor pago</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/10">
+              <tbody className="divide-y divide-slate-100">
                 {pendentes.map((p) => {
                   const checked = selecionadas.has(p.id);
                   const sel = selecionadas.get(p.id);
                   return (
-                    <tr key={p.id} className={checked ? "bg-cyan-500/10" : ""}>
+                    <tr key={p.id} className={checked ? "bg-teal-50" : ""}>
                       <td className="px-3 py-2">
                         <input
                           type="checkbox"
@@ -832,7 +839,7 @@ function PagamentoModal({
                       <td className="px-3 py-2">
                         {formatDate(p.vencimento)}
                         {p.status === "atrasada" && (
-                          <span className="ml-1 text-xs text-rose-400">atrasada</span>
+                          <span className="ml-1 text-xs text-rose-600">atrasada</span>
                         )}
                       </td>
                       <td className="px-3 py-2">{formatCurrency(p.valor_previsto)}</td>
@@ -842,7 +849,7 @@ function PagamentoModal({
                           disabled={!checked}
                           value={checked ? (sel?.data ?? dataPagamento) : ""}
                           onChange={(e) => setDataParcela(p.id, e.target.value)}
-                          className="rounded border border-white/10 bg-white/5 px-2 py-1 text-sm text-slate-200 disabled:opacity-50"
+                          className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-700 disabled:opacity-50"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -853,7 +860,7 @@ function PagamentoModal({
                           disabled={!checked}
                           value={checked ? (sel?.valor ?? p.valor_previsto) : ""}
                           onChange={(e) => setValorParcela(p.id, parseFloat(e.target.value) || 0)}
-                          className="w-28 rounded border border-white/10 bg-white/5 px-2 py-1 text-sm text-slate-200 disabled:opacity-50"
+                          className="w-28 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-700 disabled:opacity-50"
                         />
                       </td>
                     </tr>
@@ -864,7 +871,7 @@ function PagamentoModal({
           </div>
 
           {selecionadas.size > 0 && (
-            <p className="text-sm font-medium text-slate-300">
+            <p className="text-sm font-medium text-slate-600">
               Total selecionado: {formatCurrency(totalSelecionado)}
               {Array.from(selecionadas.entries()).some(([id, sel]) => {
                 const p = parcelas.find((x) => x.id === id);

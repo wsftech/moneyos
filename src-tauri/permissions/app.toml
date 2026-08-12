@@ -1,0 +1,18 @@
+[[permission]]
+identifier = "allow-fechar-splashscreen"
+description = "Permite fechar a splash e exibir a janela principal"
+commands.allow = ["fechar_splashscreen"]
+
+[[permission]]
+identifier = "allow-app-commands"
+description = "Comandos nativos do WSF Money"
+commands.allow = [
+  "get_database_path",
+  "backup_database",
+  "restore_database",
+  "salvar_anexo_transacao",
+  "salvar_logo_conta",
+  "ler_arquivo_data_url",
+  "remover_anexo_arquivo",
+  "fechar_splashscreen"
+]

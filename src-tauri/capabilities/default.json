@@ -1,10 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Capability for the main and splash windows",
+  "windows": ["main", "splashscreen"],
   "permissions": [
     "core:default",
+    "allow-app-commands",
+    "allow-fechar-splashscreen",
     "opener:default",
     "dialog:default",
     "notification:default",

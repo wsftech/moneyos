@@ -58,7 +58,7 @@ export function ConfiguracoesRegrasPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-500">
           Categorização automática quando a descrição contém o padrão (ex.: UBER → Transporte).
         </p>
         <Button
@@ -94,12 +94,12 @@ export function ConfiguracoesRegrasPage() {
                 <th className="px-4 py-3 font-medium">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className="divide-y divide-slate-100">
               {regras.map((regra) => {
                 const cat = findCategoriaById(categorias, regra.categoria_id);
                 return (
                   <tr key={regra.id} className="app-table-row">
-                    <td className="px-4 py-3 font-mono text-xs text-cyan-300">{regra.padrao}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-teal-700">{regra.padrao}</td>
                     <td className="px-4 py-3">{cat?.nome ?? "—"}</td>
                     <td className="px-4 py-3 capitalize">{regra.contexto}</td>
                     <td className="px-4 py-3 capitalize">{regra.tipo}</td>
@@ -118,7 +118,7 @@ export function ConfiguracoesRegrasPage() {
                         </Button>
                         <Button
                           variant="ghost"
-                          className="px-2 py-1 text-rose-400"
+                          className="px-2 py-1 text-rose-600"
                           onClick={() => void handleDelete(regra.id)}
                         >
                           Excluir

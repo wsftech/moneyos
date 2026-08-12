@@ -2,15 +2,24 @@ mod migrations;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use tauri::Manager;
 
 const MAX_ANEXO_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_LOGO_BYTES: u64 = 2 * 1024 * 1024;
 
 fn anexos_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map_err(|e| e.to_string())
         .map(|dir| dir.join("anexos"))
+}
+
+fn logos_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())
+        .map(|dir| dir.join("logos"))
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -25,9 +34,31 @@ fn sanitize_filename(name: &str) -> String {
         })
         .collect();
     if sanitized.is_empty() || sanitized == "." || sanitized == ".." {
-        "anexo".into()
+        "arquivo".into()
     } else {
         sanitized
+    }
+}
+
+fn extension_lower(path: &Path) -> String {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+fn is_image_extension(ext: &str) -> bool {
+    matches!(ext, "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg")
+}
+
+fn mime_for_extension(ext: &str) -> Option<&'static str> {
+    match ext {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        "svg" => Some("image/svg+xml"),
+        _ => None,
     }
 }
 
@@ -101,12 +132,86 @@ fn salvar_anexo_transacao(
 }
 
 #[tauri::command]
+fn salvar_logo_conta(
+    app: tauri::AppHandle,
+    conta_id: u64,
+    source_path: String,
+) -> Result<String, String> {
+    let source = Path::new(&source_path);
+    if !source.exists() {
+        return Err("Arquivo de origem não encontrado.".into());
+    }
+    let ext = extension_lower(source);
+    if !is_image_extension(&ext) {
+        return Err("Use uma imagem PNG, JPG, WEBP, GIF ou SVG.".into());
+    }
+    let meta = fs::metadata(source).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_LOGO_BYTES {
+        return Err("Logo muito grande (máximo 2 MB).".into());
+    }
+
+    let dir = logos_directory(&app)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let orig_name = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("logo");
+    let safe = sanitize_filename(orig_name);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+
+    let dest = dir.join(format!("conta_{}_{}_{}", conta_id, ts, safe));
+    fs::copy(source, &dest).map_err(|e| format!("Falha ao copiar logo: {e}"))?;
+
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn ler_arquivo_data_url(path: String) -> Result<String, String> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err("Arquivo não encontrado.".into());
+    }
+    let ext = extension_lower(p);
+    let mime = mime_for_extension(&ext).ok_or_else(|| {
+        "Formato de imagem não suportado.".to_string()
+    })?;
+    let bytes = fs::read(p).map_err(|e| format!("Falha ao ler arquivo: {e}"))?;
+    if bytes.len() as u64 > MAX_LOGO_BYTES {
+        return Err("Arquivo muito grande para pré-visualização.".into());
+    }
+    Ok(format!(
+        "data:{mime};base64,{}",
+        STANDARD.encode(&bytes)
+    ))
+}
+
+#[tauri::command]
 fn remover_anexo_arquivo(path: String) -> Result<(), String> {
     let p = Path::new(&path);
     if p.exists() {
-        fs::remove_file(p).map_err(|e| format!("Falha ao remover anexo: {e}"))?;
+        fs::remove_file(p).map_err(|e| format!("Falha ao remover arquivo: {e}"))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn fechar_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
+    revelar_app(&app);
+    Ok(())
+}
+
+fn revelar_app(app: &tauri::AppHandle) {
+    if let Some(splash) = app.get_webview_window("splashscreen") {
+        let _ = splash.close();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -122,12 +227,24 @@ pub fn run() {
                 .add_migrations("sqlite:financas.db", migrations::get_migrations())
                 .build(),
         )
+        .setup(|app| {
+            // Segurança: se o frontend não chamar fechar_splashscreen, revela o app mesmo assim.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(4));
+                revelar_app(&handle);
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_database_path,
             backup_database,
             restore_database,
             salvar_anexo_transacao,
-            remover_anexo_arquivo
+            salvar_logo_conta,
+            ler_arquivo_data_url,
+            remover_anexo_arquivo,
+            fechar_splashscreen
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

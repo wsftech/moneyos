@@ -86,5 +86,17 @@ pub fn get_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/014_tags_saldo_data.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 15,
+            description: "parcelamento_contatos",
+            sql: include_str!("../migrations/015_parcelamento_contatos.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 16,
+            description: "conta_logo",
+            sql: include_str!("../migrations/016_conta_logo.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

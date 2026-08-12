@@ -24,9 +24,9 @@ const STATUS_LABEL: Record<ItemConciliacao["status"], string> = {
 };
 
 const STATUS_CLASS: Record<ItemConciliacao["status"], string> = {
-  conciliado: "text-emerald-400",
-  pendente_ofx: "text-amber-400",
-  pendente_app: "text-cyan-300",
+  conciliado: "text-emerald-600",
+  pendente_ofx: "text-amber-600",
+  pendente_app: "text-teal-700",
 };
 
 export function ConciliacaoOfxModal({
@@ -177,12 +177,12 @@ export function ConciliacaoOfxModal({
       <div className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
         {successMsg && (
-          <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+          <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
             {successMsg}
           </p>
         )}
 
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-500">
           Importe o extrato OFX do banco, compare com os lançamentos do app e importe apenas o que
           ainda não foi registrado. Contas de cartão não usam conciliação OFX.
         </p>
@@ -203,7 +203,7 @@ export function ConciliacaoOfxModal({
         </div>
 
         {lancamentos.length > 0 && !resultado && (
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-slate-600">
             {lancamentos.length} lançamento(s) no extrato. Clique em Conciliar para comparar.
           </p>
         )}
@@ -247,7 +247,7 @@ export function ConciliacaoOfxModal({
               ))}
             </div>
 
-            <div className="max-h-80 overflow-auto rounded-xl border border-white/10">
+            <div className="max-h-80 overflow-auto rounded-xl border border-slate-200">
               <table className="w-full min-w-[640px] text-sm">
                 <thead className="sticky top-0 bg-slate-900/95 text-left text-slate-400">
                   <tr>
@@ -259,7 +259,7 @@ export function ConciliacaoOfxModal({
                     <th className="px-3 py-2">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5">
+                <tbody className="divide-y divide-slate-100">
                   {itensFiltrados.map((item) => (
                     <tr key={item.chave} className="hover:bg-white/[0.02]">
                       <td className="px-3 py-2">
@@ -271,14 +271,14 @@ export function ConciliacaoOfxModal({
                           />
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-300">
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-600">
                         {formatDate(item.data)}
                       </td>
-                      <td className="px-3 py-2 text-slate-200">{item.descricao}</td>
+                      <td className="px-3 py-2 text-slate-700">{item.descricao}</td>
                       <td className="px-3 py-2 capitalize text-slate-400">{item.tipo}</td>
                       <td
                         className={`px-3 py-2 text-right font-medium whitespace-nowrap ${
-                          item.tipo === "receita" ? "text-emerald-400" : "text-rose-400"
+                          item.tipo === "receita" ? "text-emerald-600" : "text-rose-600"
                         }`}
                       >
                         {item.tipo === "receita" ? "+" : "-"}
@@ -333,13 +333,13 @@ function ResumoChip({
   tone: "green" | "amber" | "cyan";
 }) {
   const colors = {
-    green: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200",
-    amber: "border-amber-500/20 bg-amber-500/10 text-amber-200",
-    cyan: "border-cyan-500/20 bg-cyan-500/10 text-cyan-200",
+    green: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    amber: "border-amber-200 bg-amber-50 text-amber-900",
+    cyan: "border-teal-200 bg-teal-50 text-teal-900",
   };
   return (
     <div className={`rounded-lg border px-4 py-3 ${colors[tone]}`}>
-      <p className="text-xs opacity-70">{label}</p>
+      <p className="text-xs text-slate-600">{label}</p>
       <p className="text-xl font-bold">{value}</p>
     </div>
   );

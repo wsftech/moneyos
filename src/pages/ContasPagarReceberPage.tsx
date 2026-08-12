@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { ContextoBadge } from "../components/ContextoSelector";
 import {
   ContextoFormSelect,
@@ -20,22 +21,25 @@ import {
   updateContaPagarReceber,
   type ContaPagarReceberInput,
 } from "../db/contasPagarReceber";
+import { listContatos } from "../db/contatos";
 import { getProgressoOrcamentoCategoria, type ProgressoOrcamentoCategoria } from "../db/orcamentos";
 import { getErrorMessage } from "../db/utils";
-import type { ContaPagarReceber, Contexto, TipoContaPagarReceber } from "../types";
+import type { ContaPagarReceber, Contato, Contexto, TipoContaPagarReceber } from "../types";
 import { formatCurrency, formatDate, labelMes, labelStatusPagarReceber } from "../utils/format";
 
 const STATUS_COLORS: Record<string, string> = {
-  pendente: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30",
-  pago: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30",
-  atrasado: "bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30",
+  pendente: "bg-amber-50 text-amber-800 ring-1 ring-amber-200",
+  pago: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200",
+  atrasado: "bg-rose-50 text-rose-800 ring-1 ring-rose-200",
 };
 
 export function ContasPagarReceberPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<ContaPagarReceber[]>([]);
   const [contas, setContas] = useState<Awaited<ReturnType<typeof listContas>>>([]);
   const [categorias, setCategorias] = useState<Awaited<ReturnType<typeof listCategorias>>>([]);
+  const [contatos, setContatos] = useState<Contato[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -43,21 +47,30 @@ export function ContasPagarReceberPage() {
   const [editing, setEditing] = useState<ContaPagarReceber | null>(null);
   const [filtroStatus, setFiltroStatus] = useState("");
 
+  useEffect(() => {
+    if (searchParams.get("nova") !== "1") return;
+    setEditing(null);
+    setModalOpen(true);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const carregar = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [i, c, cat] = await Promise.all([
+      const [i, c, cat, cts] = await Promise.all([
         listContasPagarReceber({
           contexto,
           status: filtroStatus ? (filtroStatus as ContaPagarReceber["status"]) : undefined,
         }),
         listContas(contexto),
         listCategorias("consolidado"),
+        listContatos(contexto),
       ]);
       setItems(i);
       setContas(c);
       setCategorias(cat);
+      setContatos(cts);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -132,11 +145,18 @@ export function ContasPagarReceberPage() {
                 <th className="px-4 py-3 font-medium">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className="divide-y divide-slate-100">
               {items.map((item) => (
                 <tr key={item.id} className="app-table-row">
-                  <td className="px-4 py-3 font-medium text-slate-200">{item.descricao}</td>
-                  <td className="px-4 py-3 text-slate-400">
+                  <td className="px-4 py-3 font-medium text-slate-700">
+                    <div>{item.descricao}</div>
+                    {item.contato_id != null && (
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {contatos.find((c) => c.id === item.contato_id)?.nome ?? "Contato"}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">
                     {findCategoriaById(categorias, item.categoria_id)?.nome ?? "—"}
                   </td>
                   <td className="px-4 py-3">{formatDate(item.vencimento)}</td>
@@ -161,7 +181,7 @@ export function ContasPagarReceberPage() {
                       {item.status !== "pago" && (
                         <Button
                           variant="ghost"
-                          className="px-2 py-1 text-emerald-300"
+                          className="px-2 py-1 text-emerald-700"
                           onClick={() => setEfetivarItem(item)}
                         >
                           {item.tipo === "pagar" ? "Marcar pago" : "Marcar recebido"}
@@ -179,7 +199,7 @@ export function ContasPagarReceberPage() {
                       </Button>
                       <Button
                         variant="ghost"
-                        className="px-2 py-1 text-rose-400"
+                        className="px-2 py-1 text-rose-600"
                         onClick={() => void handleDelete(item.id)}
                       >
                         Excluir
@@ -198,6 +218,7 @@ export function ContasPagarReceberPage() {
         onClose={() => setModalOpen(false)}
         item={editing}
         categorias={categorias}
+        contatos={contatos}
         onSaved={() => {
           setModalOpen(false);
           void carregar();
@@ -226,12 +247,14 @@ function ItemModal({
   onClose,
   item,
   categorias,
+  contatos,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   item: ContaPagarReceber | null;
   categorias: Awaited<ReturnType<typeof listCategorias>>;
+  contatos: Contato[];
   onSaved: () => void;
 }) {
   const { contexto } = useContexto();
@@ -241,6 +264,7 @@ function ItemModal({
   const [vencimento, setVencimento] = useState("");
   const [tipo, setTipo] = useState<TipoContaPagarReceber>("pagar");
   const [categoriaId, setCategoriaId] = useState("");
+  const [contatoId, setContatoId] = useState("");
   const [mesReferencia, setMesReferencia] = useState("");
   const [mesReferenciaManual, setMesReferenciaManual] = useState(false);
   const [preview, setPreview] = useState<ProgressoOrcamentoCategoria | null>(null);
@@ -258,6 +282,15 @@ function ItemModal({
     [categorias, contexto, formContexto, tipo],
   );
 
+  const contatosFiltrados = useMemo(
+    () =>
+      contatos.filter((c) => {
+        if (tipo === "pagar") return c.tipo === "fornecedor" || c.tipo === "ambos";
+        return c.tipo === "cliente" || c.tipo === "ambos";
+      }),
+    [contatos, tipo],
+  );
+
   useEffect(() => {
     if (item) {
       setFormContexto(item.contexto);
@@ -266,6 +299,7 @@ function ItemModal({
       setVencimento(item.vencimento);
       setTipo(item.tipo);
       setCategoriaId(item.categoria_id ? String(item.categoria_id) : "");
+      setContatoId(item.contato_id ? String(item.contato_id) : "");
       setMesReferencia(item.mes_referencia ?? item.vencimento.slice(0, 7));
       setMesReferenciaManual(!!item.mes_referencia);
     } else {
@@ -275,6 +309,7 @@ function ItemModal({
       setVencimento("");
       setTipo("pagar");
       setCategoriaId("");
+      setContatoId("");
       setMesReferencia("");
       setMesReferenciaManual(false);
     }
@@ -336,6 +371,7 @@ function ItemModal({
       tipo,
       contexto: resolveContexto(contexto, formContexto),
       categoria_id: categoriaId ? Number(categoriaId) : null,
+      contato_id: contatoId ? Number(contatoId) : null,
       mes_referencia:
         categoriaId && mesReferencia && mesReferencia !== vencimento.slice(0, 7)
           ? mesReferencia
@@ -370,12 +406,28 @@ function ItemModal({
           onChange={(e) => {
             setTipo(e.target.value as TipoContaPagarReceber);
             setCategoriaId("");
+            setContatoId("");
           }}
           options={[
             { value: "pagar", label: "A pagar" },
             { value: "receber", label: "A receber" },
           ]}
         />
+        <Select
+          label={tipo === "pagar" ? "Fornecedor" : "Cliente"}
+          value={contatoId}
+          onChange={(e) => setContatoId(e.target.value)}
+          options={[
+            { value: "", label: "Sem contato" },
+            ...contatosFiltrados.map((c) => ({ value: String(c.id), label: c.nome })),
+          ]}
+        />
+        <p className="-mt-2 text-xs text-slate-500">
+          Gerencie contatos em{" "}
+          <Link to="/configuracoes/contatos" className="text-teal-700 hover:underline">
+            Configurações → Contatos
+          </Link>
+        </p>
         <Select
           label="Categoria"
           value={categoriaId}
@@ -448,10 +500,10 @@ function OrcamentoPreviewBox({
     <div
       className={`rounded-lg border px-3 py-3 text-sm ${
         estourou
-          ? "border-rose-500/30 bg-rose-500/10 text-rose-200"
+          ? "border-rose-200 bg-rose-50 text-rose-800"
           : abaixoMeta
-            ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
-            : "border-cyan-500/20 bg-cyan-500/10 text-cyan-200"
+            ? "border-amber-200 bg-amber-50 text-amber-900"
+            : "border-teal-200 bg-teal-50 text-teal-900"
       }`}
     >
       <p className="font-medium">
@@ -552,7 +604,7 @@ function EfetivarModal({
     >
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-600">
           {item.descricao} — <strong>{formatCurrency(item.valor)}</strong>
         </p>
         <p className="text-xs text-slate-500">

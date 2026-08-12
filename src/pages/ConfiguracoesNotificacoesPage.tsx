@@ -41,24 +41,24 @@ export function ConfiguracoesNotificacoesPage() {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-slate-500">
         Receba alertas no desktop sobre vencimentos próximos (contas, parcelas e faturas).
       </p>
       {!isTauri() && (
-        <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Notificações disponíveis apenas na versão desktop do app.
         </p>
       )}
       {error && <ErrorAlert message={error} />}
       {success && (
-        <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {success}
         </p>
       )}
       <form onSubmit={(e) => void handleSave(e)} className="app-card max-w-lg space-y-4 p-5">
         <label className="flex cursor-pointer items-center gap-3">
           <input type="checkbox" checked={ativos} onChange={(e) => setAtivos(e.target.checked)} />
-          <span className="text-sm text-slate-200">Ativar lembretes de vencimento</span>
+          <span className="text-sm text-slate-700">Ativar lembretes de vencimento</span>
         </label>
         <Input
           label="Antecedência (dias)"

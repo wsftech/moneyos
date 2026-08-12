@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Gera instalador Windows assinado para distribuição e atualizações.
+  Gera instalador Windows assinado para distribuicao e atualizacoes.
 
 .EXAMPLE
   .\scripts\build-release.ps1
@@ -25,26 +25,40 @@ $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content $PrivateKey -Raw).Trim()
 Push-Location $Root
 
 if ($Version) {
-  Write-Host "Versão: $Version"
-  $pkg = Get-Content package.json | ConvertFrom-Json
-  $pkg.version = $Version
-  $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json -Encoding UTF8
-
-  $confPath = "src-tauri\tauri.conf.json"
-  $conf = Get-Content $confPath | ConvertFrom-Json
-  $conf.version = $Version
-  $conf | ConvertTo-Json -Depth 10 | Set-Content $confPath -Encoding UTF8
+  Write-Host "Versao: $Version"
+  $setVersionJs = Join-Path $Root "scripts\set-version.cjs"
+  node $setVersionJs $Version
+  if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    exit $LASTEXITCODE
+  }
 }
 
-Write-Host "Compilando instalador Windows (NSIS) + artefatos de atualização..."
+Write-Host "Compilando instalador Windows (NSIS) + artefatos de atualizacao..."
 npm run tauri build
+if ($LASTEXITCODE -ne 0) {
+  Write-Host ""
+  Write-Host "Build falhou (codigo $LASTEXITCODE)." -ForegroundColor Red
+  Write-Host "Se o erro mencionar um caminho antigo (ex.: C:\projects\finance), limpe o cache:" -ForegroundColor Yellow
+  Write-Host "  Remove-Item -Recurse -Force src-tauri\target" -ForegroundColor Yellow
+  Pop-Location
+  exit $LASTEXITCODE
+}
 
 Pop-Location
 
 $nsisDir = Join-Path $Root "src-tauri\target\release\bundle\nsis"
+$installer = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$confPath = Join-Path $Root "src-tauri\tauri.conf.json"
+$builtVersion = (Get-Content $confPath -Raw | ConvertFrom-Json).version
+
 Write-Host ""
-Write-Host "Build concluído!" -ForegroundColor Green
-Write-Host "  Instalador: $nsisDir"
+Write-Host "Build concluido!" -ForegroundColor Green
+if ($installer) {
+  Write-Host "  Instalador: $($installer.FullName)"
+} else {
+  Write-Host "  Pasta NSIS: $nsisDir"
+}
 Write-Host ""
-Write-Host "Para publicar atualização, gere latest.json:"
-Write-Host "  .\scripts\generate-latest-json.ps1 -Version `"$((Get-Content (Join-Path $Root 'src-tauri\tauri.conf.json') | ConvertFrom-Json).version)`""
+Write-Host "Para publicar atualizacao, gere latest.json:"
+Write-Host ('  .\scripts\generate-latest-json.ps1 -Version "{0}" -BaseUrl "https://github.com/wsftech/moneyos/releases/download/v{0}"' -f $builtVersion)

@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { abrirAnexo, nomeAnexo } from "../db/anexos";
 import { aplicarAnexoPendente, TransacaoAnexoField } from "../components/TransacaoAnexoField";
 import { TagSelect } from "../components/TagSelect";
@@ -31,6 +32,7 @@ import {
 } from "../db/importacaoCsv";
 import { getTagsPorTransacoes, getTagsTransacao } from "../db/tags";
 import {
+  createCompraParceladaCartao,
   createTransacao,
   createTransferencia,
   deleteTransacao,
@@ -57,6 +59,7 @@ const TIPO_OPTIONS = [
 
 export function TransacoesPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [aba, setAba] = useState<"lancamentos" | "recorrentes">("lancamentos");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +69,7 @@ export function TransacoesPage() {
   const [categorias, setCategorias] = useState<Awaited<ReturnType<typeof listCategorias>>>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Transacao | null>(null);
+  const [tipoInicial, setTipoInicial] = useState<TransacaoInput["tipo"] | undefined>();
 
   const [filtroMes, setFiltroMes] = useState(mesAtual());
   const [filtroDataInicio, setFiltroDataInicio] = useState(() => intervaloMesAtual().inicio);
@@ -75,6 +79,27 @@ export function TransacoesPage() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [conciliacaoModalOpen, setConciliacaoModalOpen] = useState(false);
   const [tagsPorTransacao, setTagsPorTransacao] = useState<Map<number, Tag[]>>(new Map());
+
+  useEffect(() => {
+    const abaParam = searchParams.get("aba");
+    if (abaParam === "recorrentes") {
+      setAba("recorrentes");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (searchParams.get("nova") !== "1") return;
+    const tipoParam = searchParams.get("tipo");
+    const tipo =
+      tipoParam === "transferencia" || tipoParam === "receita" || tipoParam === "despesa"
+        ? tipoParam
+        : undefined;
+    setAba("lancamentos");
+    setEditing(null);
+    setTipoInicial(tipo);
+    setModalOpen(true);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const periodoLabel = useMemo(() => {
     if (filtroMes) return labelMes(filtroMes);
@@ -172,6 +197,7 @@ export function TransacoesPage() {
               <Button
                 onClick={() => {
                   setEditing(null);
+                  setTipoInicial(undefined);
                   setModalOpen(true);
                 }}
               >
@@ -186,14 +212,20 @@ export function TransacoesPage() {
         <Button
           variant={aba === "lancamentos" ? "primary" : "secondary"}
           className="py-1.5 text-xs"
-          onClick={() => setAba("lancamentos")}
+          onClick={() => {
+            setAba("lancamentos");
+            setSearchParams({}, { replace: true });
+          }}
         >
           Lançamentos
         </Button>
         <Button
           variant={aba === "recorrentes" ? "primary" : "secondary"}
           className="py-1.5 text-xs"
-          onClick={() => setAba("recorrentes")}
+          onClick={() => {
+            setAba("recorrentes");
+            setSearchParams({ aba: "recorrentes" }, { replace: true });
+          }}
         >
           Recorrentes
         </Button>
@@ -207,7 +239,7 @@ export function TransacoesPage() {
       <div className="mb-4 space-y-3 app-card p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <p className="text-sm text-slate-400">
-            Exibindo: <strong className="text-slate-100">{periodoLabel}</strong>
+            Exibindo: <strong className="text-slate-900">{periodoLabel}</strong>
           </p>
           <Button type="button" variant="secondary" className="py-1.5 text-xs" onClick={restaurarMesAtual}>
             Mês atual
@@ -287,38 +319,38 @@ export function TransacoesPage() {
                 <th className="px-4 py-3 font-medium">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className="divide-y divide-slate-100">
               {transacoesExibicao.map((item) => {
                 const t = item.transacao;
                 const valorClass = item.isTransferencia && item.contaDestino
-                  ? "text-slate-300"
+                  ? "text-slate-600"
                   : t.tipo === "receita"
                     ? "text-green-600"
                     : t.tipo === "despesa"
-                      ? "text-rose-400"
-                      : "text-slate-300";
+                      ? "text-rose-600"
+                      : "text-slate-600";
                 const valorPrefix =
                   item.isTransferencia && item.contaDestino
-                    ? "↔"
+                    ? "?"
                     : t.tipo === "receita"
                       ? "+"
                       : t.tipo === "despesa"
                         ? "-"
-                        : "↔";
+                        : "?";
 
                 return (
                 <tr key={item.id} className="app-table-row">
                   <td className="px-4 py-3 whitespace-nowrap">{formatDate(t.data)}</td>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-200">
+                    <div className="font-medium text-slate-700">
                       {t.anexo_path && (
                         <button
                           type="button"
-                          className="mr-1.5 inline text-slate-400 hover:text-cyan-300"
+                          className="mr-1.5 inline text-slate-400 hover:text-teal-700"
                           title={`Abrir anexo: ${nomeAnexo(t.anexo_path)}`}
                           onClick={() => void abrirAnexo(t.anexo_path!)}
                         >
-                          📎
+                          ??
                         </button>
                       )}
                       {t.descricao}
@@ -328,7 +360,7 @@ export function TransacoesPage() {
                         {(tagsPorTransacao.get(t.id) ?? []).map((tag) => (
                           <span
                             key={tag.id}
-                            className="inline-block rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                            className="inline-block rounded-full px-2 py-0.5 text-[10px] font-medium text-slate-900"
                             style={{ backgroundColor: tag.cor }}
                           >
                             {tag.nome}
@@ -342,7 +374,7 @@ export function TransacoesPage() {
                     {item.isTransferencia && item.contaOrigem && item.contaDestino ? (
                       <span>
                         {item.contaOrigem}
-                        <span className="mx-1 text-slate-400">→</span>
+                        <span className="mx-1 text-slate-400">?</span>
                         {item.contaDestino}
                       </span>
                     ) : (
@@ -381,7 +413,7 @@ export function TransacoesPage() {
                       </Button>
                       <Button
                         variant="ghost"
-                        className="px-2 py-1 text-rose-400"
+                        className="px-2 py-1 text-rose-600"
                         onClick={() => void handleDelete(t)}
                       >
                         Excluir
@@ -398,12 +430,17 @@ export function TransacoesPage() {
 
       <TransacaoModal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          setModalOpen(false);
+          setTipoInicial(undefined);
+        }}
         transacao={editing}
         contas={contas}
         categorias={categorias}
+        tipoInicial={tipoInicial}
         onSaved={() => {
           setModalOpen(false);
+          setTipoInicial(undefined);
           void carregar();
         }}
       />
@@ -516,24 +553,24 @@ function RecorrentesPanel({
                 <th className="px-4 py-3 font-medium">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className="divide-y divide-slate-100">
               {lista.map((r) => {
                 const conta = contas.find((c) => c.id === r.conta_id);
                 return (
                   <tr key={r.id} className="app-table-row">
-                    <td className="px-4 py-3 font-medium text-slate-200">{r.descricao}</td>
+                    <td className="px-4 py-3 font-medium text-slate-700">{r.descricao}</td>
                     <td className="px-4 py-3 capitalize">{r.tipo}</td>
                     <td className="px-4 py-3">Dia {r.dia_mes}</td>
                     <td className="px-4 py-3 text-slate-400">{conta?.nome ?? "—"}</td>
                     <td
-                      className={`px-4 py-3 text-right font-semibold ${r.tipo === "receita" ? "text-green-600" : "text-rose-400"}`}
+                      className={`px-4 py-3 text-right font-semibold ${r.tipo === "receita" ? "text-green-600" : "text-rose-600"}`}
                     >
                       {r.tipo === "receita" ? "+" : "-"}
                       {formatCurrency(r.valor)}
                     </td>
                     <td className="px-4 py-3">
                       {r.ativo ? (
-                        <span className="text-emerald-400">Ativo</span>
+                        <span className="text-emerald-600">Ativo</span>
                       ) : (
                         <span className="text-slate-500">Inativo</span>
                       )}
@@ -552,7 +589,7 @@ function RecorrentesPanel({
                         </Button>
                         <Button
                           variant="ghost"
-                          className="px-2 py-1 text-rose-400"
+                          className="px-2 py-1 text-rose-600"
                           onClick={() => void handleDelete(r.id)}
                         >
                           Excluir
@@ -839,7 +876,7 @@ function ImportCsvModal({
       <div className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
         {resultado && (
-          <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+          <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
             {resultado}
           </p>
         )}
@@ -855,7 +892,7 @@ function ImportCsvModal({
           options={contas.map((c) => ({ value: String(c.id), label: c.nome }))}
         />
         {preview.length > 0 && (
-          <p className="text-sm text-slate-300">{preview.length} lançamento(s) detectado(s).</p>
+          <p className="text-sm text-slate-600">{preview.length} lançamento(s) detectado(s).</p>
         )}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
@@ -877,6 +914,7 @@ function TransacaoModal({
   contas,
   categorias,
   onSaved,
+  tipoInicial,
 }: {
   open: boolean;
   onClose: () => void;
@@ -884,6 +922,7 @@ function TransacaoModal({
   contas: Awaited<ReturnType<typeof listContas>>;
   categorias: Awaited<ReturnType<typeof listCategorias>>;
   onSaved: () => void;
+  tipoInicial?: TransacaoInput["tipo"];
 }) {
   const { contexto } = useContexto();
   const [formContexto, setFormContexto] = useState<Contexto>(defaultFormContexto(contexto));
@@ -901,6 +940,7 @@ function TransacaoModal({
   const [anexoPath, setAnexoPath] = useState<string | null>(null);
   const [pendingAnexoSource, setPendingAnexoSource] = useState<string | null>(null);
   const [tagIds, setTagIds] = useState<number[]>([]);
+  const [parcelas, setParcelas] = useState("1");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isVinculada, setIsVinculada] = useState(false);
@@ -979,7 +1019,7 @@ function TransacaoModal({
         setDescricao("");
         setValor("");
         setData(new Date().toISOString().slice(0, 10));
-        setTipo("despesa");
+        setTipo(tipoInicial ?? "despesa");
         setContaId(contas[0] ? String(contas[0].id) : "");
         setContaOrigemId(todasContas[0] ? String(todasContas[0].id) : "");
         setContaDestinoId(todasContas[1] ? String(todasContas[1].id) : "");
@@ -990,10 +1030,11 @@ function TransacaoModal({
         setAnexoPath(null);
         setPendingAnexoSource(null);
         setTagIds([]);
+        setParcelas("1");
       }
     }
     if (open) void loadForm();
-  }, [transacao, open, contexto, contas, todasContas]);
+  }, [transacao, open, contexto, contas, todasContas, tipoInicial]);
 
   const isTransferencia = tipo === "transferencia" || isVinculada;
   const contasParaTransfer = contexto === "consolidado" ? todasContas : contas;
@@ -1091,9 +1132,25 @@ function TransacaoModal({
             await aplicarAnexoPendente(transacao.id, pendingAnexoSource);
           }
         } else {
-          const created = await createTransacao(input);
-          if (pendingAnexoSource) {
-            await aplicarAnexoPendente(created.id, pendingAnexoSource);
+          const contaSel = contasFiltradas.find((c) => String(c.id) === contaId);
+          const nParcelas = Math.floor(Number(parcelas));
+          if (
+            tipo === "despesa" &&
+            contaSel?.tipo === "cartao_credito" &&
+            nParcelas >= 2
+          ) {
+            const criadas = await createCompraParceladaCartao({
+              ...input,
+              parcelas: nParcelas,
+            });
+            if (pendingAnexoSource && criadas[0]) {
+              await aplicarAnexoPendente(criadas[0].id, pendingAnexoSource);
+            }
+          } else {
+            const created = await createTransacao(input);
+            if (pendingAnexoSource) {
+              await aplicarAnexoPendente(created.id, pendingAnexoSource);
+            }
           }
         }
       }
@@ -1108,6 +1165,13 @@ function TransacaoModal({
   const contasFiltradas = contas.filter(
     (c) => contexto === "consolidado" || c.contexto === contexto,
   );
+
+  const contaSelecionada = contasFiltradas.find((c) => String(c.id) === contaId);
+  const mostrarParcelas =
+    !transacao &&
+    !isTransferencia &&
+    tipo === "despesa" &&
+    contaSelecionada?.tipo === "cartao_credito";
 
   const lancamentoContexto = resolveContexto(contexto, formContexto);
   const categoriasFiltradas = filtrarCategoriasParaLancamento(
@@ -1126,7 +1190,7 @@ function TransacaoModal({
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
         {isVinculada && (
-          <p className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-300">
+          <p className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-800">
             Transferência vinculada — alterações em descrição, valor, data e categorias serão
             aplicadas ao par de lançamentos.
           </p>
@@ -1196,7 +1260,7 @@ function TransacaoModal({
             </div>
             {crossContext && (
               <>
-                <p className="rounded-lg border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-sm text-violet-200">
+                <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
                   Transferência entre contextos: saída (
                   <ContextoBadge itemContexto={origemConta!.contexto} />) e entrada (
                   <ContextoBadge itemContexto={destinoConta!.contexto} />). Use categorias como{" "}
@@ -1204,7 +1268,7 @@ function TransacaoModal({
                 </p>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Select
-                    label={`Categoria na origem (despesa — ${origemConta!.contexto})`}
+                    label={`Categoria na origem (despesa · ${origemConta!.contexto})`}
                     value={categoriaOrigemId}
                     onChange={(e) => setCategoriaOrigemId(e.target.value)}
                     options={[
@@ -1213,7 +1277,7 @@ function TransacaoModal({
                     ]}
                   />
                   <Select
-                    label={`Categoria no destino (receita — ${destinoConta!.contexto})`}
+                    label={`Categoria no destino (receita · ${destinoConta!.contexto})`}
                     value={categoriaDestinoId}
                     onChange={(e) => setCategoriaDestinoId(e.target.value)}
                     options={[
@@ -1243,6 +1307,32 @@ function TransacaoModal({
               ]}
             />
           </div>
+        )}
+
+        {mostrarParcelas && (
+          <div className="space-y-2">
+            <Input
+              label="Parcelas no cart↔o"
+              type="number"
+              min="1"
+              max="48"
+              step="1"
+              value={parcelas}
+              onChange={(e) => setParcelas(e.target.value)}
+            />
+            {Number(parcelas) >= 2 && (
+              <p className="text-xs text-slate-500">
+                O valor ser↔ dividido em {Math.floor(Number(parcelas))} lan↔amentos, um por
+                ciclo de fatura a partir da data informada.
+              </p>
+            )}
+          </div>
+        )}
+
+        {transacao?.parcela_total != null && transacao.parcela_total > 1 && (
+          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-400">
+            Parcela {transacao.parcela_numero}/{transacao.parcela_total} de compra parcelada
+          </p>
         )}
 
         <Textarea

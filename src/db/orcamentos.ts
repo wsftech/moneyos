@@ -183,6 +183,40 @@ export async function createOrcamento(input: OrcamentoInput): Promise<Orcamento>
   });
 }
 
+/**
+ * Cria envelope recorrente da parcela (se ainda não existir item igual no mês),
+ * para a dívida aparecer no orçamento automaticamente.
+ */
+export async function garantirOrcamentoParcelaDivida(input: {
+  descricao: string;
+  categoria_id: number;
+  contexto: Contexto;
+  valor_parcela: number;
+  mes_referencia: string;
+}): Promise<Orcamento | null> {
+  const descricao = input.descricao.trim();
+  if (!descricao || input.valor_parcela <= 0) return null;
+
+  await sincronizarOrcamentosRecorrentes(input.contexto, input.mes_referencia);
+  const existentes = await listOrcamentos(input.contexto, input.mes_referencia);
+  const jaExiste = existentes.some(
+    (o) =>
+      o.categoria_id === input.categoria_id &&
+      o.contexto === input.contexto &&
+      (o.descricao ?? "").trim().toLowerCase() === descricao.toLowerCase(),
+  );
+  if (jaExiste) return null;
+
+  return createOrcamento({
+    categoria_id: input.categoria_id,
+    contexto: input.contexto,
+    mes_referencia: input.mes_referencia,
+    valor_limite: input.valor_parcela,
+    descricao,
+    recorrente: true,
+  });
+}
+
 export async function updateOrcamento(
   id: number,
   input: Partial<OrcamentoInput>,
@@ -307,6 +341,28 @@ export async function getReceitaRealOrcamento(
   return getRealizadoOrcamento(categoriaId, contexto, mesReferencia, "receita");
 }
 
+async function getLimiteCategoriaMes(
+  categoriaId: number,
+  contexto: Contexto,
+  mesReferencia: string,
+): Promise<number | null> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<{ total: number }[]>(
+      `SELECT COALESCE(SUM(valor_limite), 0) as total
+       FROM orcamentos
+       WHERE categoria_id = $1 AND contexto = $2 AND mes_referencia = $3`,
+      [categoriaId, contexto, mesReferencia],
+    );
+    const total = Number(rows[0]?.total ?? 0);
+    return total > 0 ? total : null;
+  });
+}
+
+/**
+ * Realizado no mês: despesas de cartão entram pelo mês de fechamento da fatura
+ * (competência do ciclo); demais lançamentos pela data.
+ */
 async function getRealizadoOrcamento(
   categoriaId: number,
   contexto: Contexto,
@@ -315,17 +371,35 @@ async function getRealizadoOrcamento(
 ): Promise<number> {
   return withDatabase(async () => {
     const db = await getDatabase();
+    if (tipo === "receita") {
+      const rows = await db.select<{ total: number }[]>(
+        `SELECT COALESCE(SUM(valor), 0) as total
+         FROM transacoes
+         WHERE status = 'efetivado'
+           AND tipo = 'receita'
+           AND categoria_id = $1
+           AND contexto = $2
+           AND data LIKE $3`,
+        [categoriaId, contexto, `${mesReferencia}%`],
+      );
+      return Number(rows[0]?.total ?? 0);
+    }
+
     const rows = await db.select<{ total: number }[]>(
-      `SELECT COALESCE(SUM(valor), 0) as total
-       FROM transacoes
-       WHERE status = 'efetivado'
-         AND tipo = $1
-         AND categoria_id = $2
-         AND contexto = $3
-         AND data LIKE $4`,
-      [tipo, categoriaId, contexto, `${mesReferencia}%`],
+      `SELECT COALESCE(SUM(t.valor), 0) as total
+       FROM transacoes t
+       LEFT JOIN faturas_cartao f ON CAST(f.id AS INTEGER) = CAST(t.fatura_cartao_id AS INTEGER)
+       WHERE t.status = 'efetivado'
+         AND t.tipo = 'despesa'
+         AND t.categoria_id = $1
+         AND t.contexto = $2
+         AND (
+           (t.fatura_cartao_id IS NOT NULL AND f.mes_referencia = $3)
+           OR (t.fatura_cartao_id IS NULL AND t.data LIKE $4)
+         )`,
+      [categoriaId, contexto, mesReferencia, `${mesReferencia}%`],
     );
-    return rows[0]?.total ?? 0;
+    return Number(rows[0]?.total ?? 0);
   });
 }
 
@@ -390,16 +464,7 @@ export async function getProgressoOrcamentoCategoria(
     tipoCategoria === "receita"
       ? getReceitaRealOrcamento(categoriaId, contexto, mesReferencia)
       : getGastoRealOrcamento(categoriaId, contexto, mesReferencia),
-    withDatabase(async () => {
-      const db = await getDatabase();
-      const rows = await db.select<{ valor_limite: number }[]>(
-        `SELECT valor_limite FROM orcamentos
-         WHERE categoria_id = $1 AND contexto = $2 AND mes_referencia = $3
-         LIMIT 1`,
-        [categoriaId, contexto, mesReferencia],
-      );
-      return rows[0]?.valor_limite ?? null;
-    }),
+    getLimiteCategoriaMes(categoriaId, contexto, mesReferencia),
   ]);
 
   let comprometido: number;
@@ -452,37 +517,52 @@ export async function getOrcamentosComProgresso(
     await sincronizarOrcamentosRecorrentes(contexto, mesReferencia);
   }
   const orcamentos = await listOrcamentos(contexto, mesReferencia);
+
+  /** Cache por categoria+contexto+mês para não recalcular e para envelope compartilhado */
+  const cache = new Map<
+    string,
+    { tipo_categoria: TipoCategoria; gasto: number; comprometido: number; limiteEnvelope: number | null }
+  >();
+
+  async function progressoCategoria(
+    categoriaId: number,
+    ctx: Contexto,
+    mes: string,
+  ) {
+    const key = `${categoriaId}|${ctx}|${mes}`;
+    const hit = cache.get(key);
+    if (hit) return hit;
+
+    const tipo_categoria = await getTipoCategoria(categoriaId);
+    const [gasto, comprometido, limiteEnvelope] = await Promise.all([
+      tipo_categoria === "receita"
+        ? getReceitaRealOrcamento(categoriaId, ctx, mes)
+        : getGastoRealOrcamento(categoriaId, ctx, mes),
+      getCompromissoOrcamento(categoriaId, ctx, mes, tipo_categoria),
+      getLimiteCategoriaMes(categoriaId, ctx, mes),
+    ]);
+    const value = { tipo_categoria, gasto, comprometido, limiteEnvelope };
+    cache.set(key, value);
+    return value;
+  }
+
   return Promise.all(
     orcamentos.map(async (orcamento) => {
-      const tipo_categoria = await getTipoCategoria(orcamento.categoria_id);
-      const realizado =
-        tipo_categoria === "receita"
-          ? await getReceitaRealOrcamento(
-              orcamento.categoria_id,
-              orcamento.contexto,
-              orcamento.mes_referencia,
-            )
-          : await getGastoRealOrcamento(
-              orcamento.categoria_id,
-              orcamento.contexto,
-              orcamento.mes_referencia,
-            );
-      const comprometido = await getCompromissoOrcamento(
+      const prog = await progressoCategoria(
         orcamento.categoria_id,
         orcamento.contexto,
         orcamento.mes_referencia,
-        tipo_categoria,
       );
-      const total_usado = realizado + comprometido;
+      const total_usado = prog.gasto + prog.comprometido;
+      /** Envelope = soma dos limites da categoria no mês (itens irmãos compartilham) */
+      const limiteRef = prog.limiteEnvelope ?? orcamento.valor_limite;
       const percentual =
-        orcamento.valor_limite > 0
-          ? Math.min((total_usado / orcamento.valor_limite) * 100, 999)
-          : 0;
+        limiteRef > 0 ? Math.min((total_usado / limiteRef) * 100, 999) : 0;
       return {
         ...orcamento,
-        tipo_categoria,
-        gasto: realizado,
-        comprometido,
+        tipo_categoria: prog.tipo_categoria,
+        gasto: prog.gasto,
+        comprometido: prog.comprometido,
         total_usado,
         percentual,
       };

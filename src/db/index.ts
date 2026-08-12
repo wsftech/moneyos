@@ -7,5 +7,6 @@ export * from "./contasPagarReceber";
 export * from "./orcamentos";
 export * from "./financiamentos";
 export { getCompromissoEmprestimosMes, reverterParcelaEmprestimoPorTransacao } from "./emprestimos";
+export * from "./contatos";
 export * from "./proximosVencimentos";
 export * from "./configuracoes";
