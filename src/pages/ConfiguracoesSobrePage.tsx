@@ -111,6 +111,21 @@ export function ConfiguracoesSobrePage() {
             <p className="mt-1 whitespace-pre-wrap text-sm text-slate-300">{status.notas}</p>
           </div>
         )}
+        {status?.tipo === "sem_publicacao" && (
+          <p className="mt-3 text-sm text-slate-400">
+            Nenhuma release publicada no servidor de atualizações ainda. Quando houver uma nova versão
+            em{" "}
+            <a
+              href="https://github.com/wsftech/moneyos/releases"
+              className="text-indigo-400 hover:underline"
+              target="_blank"
+              rel="noreferrer"
+            >
+              GitHub Releases
+            </a>
+            , a verificação funcionará automaticamente.
+          </p>
+        )}
         {status?.tipo === "erro" && (
           <div className="mt-3">
             <ErrorAlert message={status.mensagem} />

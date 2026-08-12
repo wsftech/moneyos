@@ -7,7 +7,25 @@ export type StatusAtualizacao =
   | { tipo: "indisponivel" }
   | { tipo: "atualizado" }
   | { tipo: "disponivel"; versao: string; notas?: string }
+  | { tipo: "sem_publicacao" }
   | { tipo: "erro"; mensagem: string };
+
+function traduzirErroAtualizacao(err: unknown): StatusAtualizacao {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+
+  if (
+    lower.includes("could not fetch a valid release json") ||
+    lower.includes("404") ||
+    lower.includes("failed to fetch") ||
+    lower.includes("network") ||
+    lower.includes("release json")
+  ) {
+    return { tipo: "sem_publicacao" };
+  }
+
+  return { tipo: "erro", mensagem: msg };
+}
 
 export type ProgressoAtualizacao =
   | { fase: "idle" }
@@ -40,10 +58,7 @@ export async function verificarAtualizacao(): Promise<StatusAtualizacao> {
       notas: update.body ?? undefined,
     };
   } catch (err) {
-    return {
-      tipo: "erro",
-      mensagem: err instanceof Error ? err.message : String(err),
-    };
+    return traduzirErroAtualizacao(err);
   }
 }
 

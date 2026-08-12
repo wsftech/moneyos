@@ -24,7 +24,7 @@ New-Item -ItemType Directory -Force -Path $SigningDir | Out-Null
 if (-not (Test-Path $PrivateKey)) {
   Write-Host "Gerando chaves de assinatura..."
   Push-Location $Root
-  npx tauri signer generate -w "src-tauri\.signing\moneyos.key"
+  npx tauri signer generate -w "src-tauri\.signing\moneyos.key" --ci
   Pop-Location
 } else {
   Write-Host "Chaves já existem em $SigningDir"
