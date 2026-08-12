@@ -1,23 +1,22 @@
-; Hooks do instalador NSIS — tornam o update in-app mais confiável no Windows.
+; Hooks do instalador NSIS — update in-app no Windows.
 ;
 ; O plugin updater faz ShellExecute do setup e em seguida process::exit.
-; Sem espera, o NSIS pode tentar sobrescrever financas.exe ainda bloqueado
-; (processo pai / WebView2), abortar a instalação e nunca chegar no /R.
+; Sem espera, o NSIS pode tentar sobrescrever financas.exe ainda bloqueado.
 
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "Encerrando WSF Money antes de atualizar..."
-  ; /T mata a árvore (WebView2 filhos). Código de saída ≠ 0 é ok se já não houver processo.
+  ; /T mata a árvore (WebView2). Código ≠ 0 é ok se o processo já saiu.
   ExecWait 'taskkill /F /T /IM financas.exe'
   Sleep 2500
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; Relaunch robusto para caminhos com espaço (ex.: %LOCALAPPDATA%\WSF Money).
-  ; Usado quando o update roda em modo passivo (/P) ou /UPDATE.
-  ; O updater NÃO deve passar /R junto (evita abrir duas instâncias).
+  ; NÃO usar "cmd /C ping ... & start" — o instalador fecha em modo /P e
+  ; mata o cmd filho antes do delay, então o app nunca reabre.
+  ; RunAsUser lança processo independente (mesmo mecanismo do /R do Tauri).
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1
     DetailPrint "Reabrindo WSF Money..."
-    Exec 'cmd.exe /C ping -n 3 127.0.0.1 >nul & start "" "$INSTDIR\${MAINBINARYNAME}.exe"'
+    nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
   ${EndIf}
 !macroend

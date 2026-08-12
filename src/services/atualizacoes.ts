@@ -1,4 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check, type DownloadEvent } from "@tauri-apps/plugin-updater";
@@ -127,10 +127,20 @@ export async function baixarEInstalarAtualizacao(
   // Tempo para o modal pintar "Instalando…".
   await new Promise((r) => setTimeout(r, 500));
 
+  // No Windows: watchdog detached reabre o app se o NSIS/ShellExecute falhar
+  // (o plugin faz process::exit mesmo quando o instalador não sobe).
+  if (isWindows()) {
+    try {
+      await invoke("agendar_reopen_apos_update");
+    } catch (err) {
+      console.error("Falha ao agendar reabertura pós-update:", err);
+    }
+  }
+
   await update.install();
 
   // No Windows o plugin encerra o processo ao lançar o NSIS (/P).
-  // O relaunch fica a cargo do hook POSTINSTALL (caminho com espaços).
+  // Relaunch: hook NSIS (RunAsUser) + watchdog de segurança.
   // Não chamar relaunch() — isso mataria o instalador ou reabriria a versão antiga.
   if (!isWindows()) {
     onProgresso?.({ fase: "reiniciando" });

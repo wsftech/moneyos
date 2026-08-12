@@ -204,6 +204,40 @@ fn fechar_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Agenda um processo separado que reabre o app se, após o update, ele não voltar sozinho.
+/// Cobre: instalador bloqueado, relaunch NSIS falhou, ou ShellExecute do updater falhou
+/// (o plugin mesmo assim encerra o processo).
+#[tauri::command]
+fn agendar_reopen_apos_update() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let exe = exe.to_string_lossy().replace('"', "");
+
+        // DETACHED para sobreviver ao process::exit do plugin updater.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const FLAGS: u32 = CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+
+        // Espera o updater/NSIS; se financas.exe não estiver no ar, reabre o exe atual
+        // (versão nova se a instalação concluiu, senão a antiga — melhor que ficar fechado).
+        let script = format!(
+            "timeout /t 15 /nobreak >nul & tasklist /FI \"IMAGENAME eq financas.exe\" | find /I \"financas.exe\" >nul || start \"\" \"{exe}\""
+        );
+
+        Command::new("cmd.exe")
+            .args(["/C", &script])
+            .creation_flags(FLAGS)
+            .spawn()
+            .map_err(|e| format!("Falha ao agendar reabertura: {e}"))?;
+    }
+    Ok(())
+}
+
 fn revelar_app(app: &tauri::AppHandle) {
     if let Some(splash) = app.get_webview_window("splashscreen") {
         let _ = splash.close();
@@ -244,7 +278,8 @@ pub fn run() {
             salvar_logo_conta,
             ler_arquivo_data_url,
             remover_anexo_arquivo,
-            fechar_splashscreen
+            fechar_splashscreen,
+            agendar_reopen_apos_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

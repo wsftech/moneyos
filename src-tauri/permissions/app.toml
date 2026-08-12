@@ -14,5 +14,6 @@ commands.allow = [
   "salvar_logo_conta",
   "ler_arquivo_data_url",
   "remover_anexo_arquivo",
-  "fechar_splashscreen"
+  "fechar_splashscreen",
+  "agendar_reopen_apos_update"
 ]
