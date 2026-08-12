@@ -57,8 +57,7 @@ export function ConfiguracoesSobrePage() {
         <h2 className="font-semibold text-slate-900">Atualizações</h2>
         <p className="mt-2 text-sm text-slate-500">
           O app verifica novas versões automaticamente ao iniciar. Você também pode verificar
-          manualmente aqui. Ao instalar, o app fecha, o instalador aplica a versão e o WSF Money
-          reabre sozinho. Se isso não acontecer, instale pelo GitHub Releases.
+          manualmente aqui.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -118,15 +117,6 @@ export function ConfiguracoesSobrePage() {
             <ErrorAlert message={status.mensagem} />
           </div>
         )}
-      </section>
-
-      <section className="app-card p-5">
-        <h2 className="font-semibold text-slate-900">Instalação no Windows</h2>
-        <p className="mt-2 text-sm text-slate-500">
-          Distribua o instalador gerado em{" "}
-          <code className="text-slate-600">src-tauri/target/release/bundle/nsis/</code>. As
-          atualizações futuras serão baixadas e aplicadas automaticamente pelo app.
-        </p>
       </section>
     </div>
   );
