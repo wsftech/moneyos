@@ -51,6 +51,43 @@ function dataLancamentoRecorrente(mesReferencia: string, diaMes: number): string
   return `${yyyy}-${mm}-${String(dia).padStart(2, "0")}`;
 }
 
+function hojeIsoLocal(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function mesCriacaoRecorrente(createdAt: string): string {
+  return createdAt.slice(0, 7);
+}
+
+/** Pode gerar lançamento efetivado deste recorrente neste mês? */
+export function podeGerarRecorrenteNoMes(
+  rec: Pick<TransacaoRecorrente, "created_at" | "dia_mes">,
+  mesReferencia: string,
+  hoje = hojeIsoLocal(),
+): boolean {
+  const mesAtual = hoje.slice(0, 7);
+  // Sem backfill de meses passados nem antecipação de meses futuros.
+  if (mesReferencia !== mesAtual) return false;
+  if (mesReferencia < mesCriacaoRecorrente(rec.created_at)) return false;
+  const data = dataLancamentoRecorrente(mesReferencia, rec.dia_mes);
+  return data <= hoje;
+}
+
+/** Ainda é compromisso em aberto no mês (não gerou lançamento e mês >= criação). */
+export function recorrentePendenteNoMes(
+  rec: Pick<TransacaoRecorrente, "created_at" | "dia_mes" | "id">,
+  mesReferencia: string,
+  jaGerado: boolean,
+): boolean {
+  if (jaGerado) return false;
+  if (mesReferencia < mesCriacaoRecorrente(rec.created_at)) return false;
+  return true;
+}
+
 export async function listTransacoesRecorrentes(
   contexto?: ContextoVisualizacao,
 ): Promise<TransacaoRecorrente[]> {
@@ -148,15 +185,29 @@ export async function deleteTransacaoRecorrente(id: number): Promise<void> {
   });
 }
 
-/** Gera transações efetivadas para recorrentes ativos no mês (se ainda não geradas). */
+/**
+ * Gera transações efetivadas para recorrentes ativos.
+ * Regras:
+ * - só no mês corrente (sem backfill de meses anteriores);
+ * - só a partir do mês de criação do recorrente;
+ * - só depois da data de vencimento (dia_mes) — antes disso fica só como compromisso previsto.
+ */
 export async function sincronizarTransacoesRecorrentes(
   mesReferencia: string,
   contexto?: ContextoVisualizacao,
 ): Promise<number> {
+  const hoje = hojeIsoLocal();
+  const mesAtual = hoje.slice(0, 7);
+  if (mesReferencia !== mesAtual) {
+    return 0;
+  }
+
   const recorrentes = await listTransacoesRecorrentes(contexto);
   let gerados = 0;
 
   for (const rec of recorrentes.filter((r) => r.ativo)) {
+    if (!podeGerarRecorrenteNoMes(rec, mesReferencia, hoje)) continue;
+
     await withDatabase(async () => {
       const db = await getDatabase();
       const exists = await db.select<{ recorrente_id: number }[]>(

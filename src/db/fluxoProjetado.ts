@@ -126,7 +126,9 @@ function projetarRecorrentes(
   const meses = mesesNoHorizonte(hoje, 90);
 
   for (const rec of recorrentes.filter((r) => r.ativo)) {
+    const mesCriacao = rec.created_at.slice(0, 7);
     for (const mes of meses) {
+      if (mes < mesCriacao) continue;
       const data = dataRecorrenteNoMes(mes, rec.dia_mes);
       if (data < hoje || data > limiteData) continue;
       eventos.push({

@@ -4,7 +4,10 @@ import { sincronizarStatusContasPagarReceber } from "./contasPagarReceber";
 import { sincronizarStatusParcelas as sincronizarFinanciamentos } from "./financiamentos";
 import { sincronizarStatusParcelas as sincronizarEmprestimos } from "./emprestimos";
 import { getResumoMensal } from "./transacoes";
-import { listTransacoesRecorrentes } from "./transacoesRecorrentes";
+import {
+  listTransacoesRecorrentes,
+  recorrentePendenteNoMes,
+} from "./transacoesRecorrentes";
 import {
   applyContextoFilter,
   buildContextoFilter,
@@ -142,7 +145,7 @@ async function getRecorrentesPendentesNoMes(
   let entradas = 0;
   let saidas = 0;
   for (const rec of ativos) {
-    if (gerados.has(rec.id)) continue;
+    if (!recorrentePendenteNoMes(rec, mes, gerados.has(rec.id))) continue;
     if (rec.tipo === "receita") entradas += rec.valor;
     if (rec.tipo === "despesa") saidas += rec.valor;
   }

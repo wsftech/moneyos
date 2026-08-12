@@ -520,7 +520,8 @@ function RecorrentesPanel({
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-400">
-          Aluguel, assinaturas, salários — gerados automaticamente no mês selecionado na aba Lançamentos.
+          Aluguel, assinaturas, salários — viram lançamento só no mês corrente, a partir do dia
+          informado. Antes disso entram só como compromisso previsto no dashboard.
         </p>
         <Button
           onClick={() => {
@@ -754,6 +755,10 @@ function RecorrenteModal({
             required
           />
         </div>
+        <p className="-mt-2 text-xs text-slate-500">
+          O lançamento só é criado no mês atual a partir deste dia. Meses anteriores não são
+          preenchidos automaticamente.
+        </p>
         <div className="grid gap-4 md:grid-cols-2">
           <Select
             label="Tipo"
