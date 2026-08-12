@@ -4,6 +4,7 @@ import { abrirAnexo, nomeAnexo } from "../db/anexos";
 import { aplicarAnexoPendente, TransacaoAnexoField } from "../components/TransacaoAnexoField";
 import { TagSelect } from "../components/TagSelect";
 import { ConciliacaoOfxModal } from "../components/ConciliacaoOfxModal";
+import { useConfirm } from "../components/ConfirmDialog";
 import { ContextoBadge } from "../components/ContextoSelector";
 import {
   ContextoFormSelect,
@@ -59,6 +60,7 @@ const TIPO_OPTIONS = [
 
 export function TransacoesPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
   const [aba, setAba] = useState<"lancamentos" | "recorrentes">("lancamentos");
   const [loading, setLoading] = useState(true);
@@ -168,10 +170,10 @@ export function TransacoesPage() {
       transacoes.some((t) => t.transacao_vinculada_id === transacao.id);
 
     const msg = vinculada
-      ? "Esta transação está vinculada a outra (ex.: transferência entre contextos). Ambas serão excluídas. Continuar?"
+      ? "Esta transação está vinculada a outra (ex.: transferência entre contextos). Ambas serão excluídas."
       : "Excluir esta transação? Lançamentos a pagar/receber vinculados voltarão para pendente.";
 
-    if (!confirm(msg)) return;
+    if (!(await confirm(msg))) return;
     try {
       await deleteTransacao(transacao.id);
       await carregar();
@@ -481,6 +483,7 @@ function RecorrentesPanel({
   contas: Awaited<ReturnType<typeof listContas>>;
   categorias: Awaited<ReturnType<typeof listCategorias>>;
 }) {
+  const confirm = useConfirm();
   const [lista, setLista] = useState<TransacaoRecorrente[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -504,7 +507,7 @@ function RecorrentesPanel({
   }, [carregar, ctxLoading]);
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir este lançamento recorrente?")) return;
+    if (!(await confirm("Excluir este lançamento recorrente?"))) return;
     try {
       await deleteTransacaoRecorrente(id);
       await carregar();

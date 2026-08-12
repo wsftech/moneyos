@@ -6,6 +6,7 @@ import {
   defaultFormContexto,
   resolveContexto,
 } from "../components/ContextoFormSelect";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
 import { Input, Select } from "../components/ui/FormFields";
@@ -35,6 +36,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function ContasPagarReceberPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<ContaPagarReceber[]>([]);
   const [contas, setContas] = useState<Awaited<ReturnType<typeof listContas>>>([]);
@@ -83,7 +85,7 @@ export function ContasPagarReceberPage() {
   }, [carregar, ctxLoading]);
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir este lançamento?")) return;
+    if (!(await confirm("Excluir este lançamento?"))) return;
     try {
       await deleteContaPagarReceber(id);
       await carregar();

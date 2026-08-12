@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { ErrorAlert, LoadingSpinner } from "../components/ui/Feedback";
 import { Input, Select, Textarea } from "../components/ui/FormFields";
@@ -21,6 +22,7 @@ const TIPO_OPTIONS = [
 
 export function ConfiguracoesContatosPage() {
   const { contexto } = useContexto();
+  const confirm = useConfirm();
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +86,7 @@ export function ConfiguracoesContatosPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir este contato?")) return;
+    if (!(await confirm("Excluir este contato?"))) return;
     try {
       await deleteContato(id);
       if (editing?.id === id) resetForm();

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useConfirm } from "./ConfirmDialog";
 import { Button } from "./ui/Button";
 import {
   abrirAnexo,
@@ -32,6 +33,7 @@ export function TransacaoAnexoField({
   pendingSource,
   onPendingSourceChange,
 }: Props) {
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +81,16 @@ export function TransacaoAnexoField({
   }
 
   async function handleRemover() {
+    if (
+      !(await confirm({
+        title: "Remover anexo",
+        message: "Remover o comprovante anexado a esta transação?",
+        confirmLabel: "Remover",
+        tone: "danger",
+      }))
+    ) {
+      return;
+    }
     setError(null);
     try {
       if (transacaoId && anexoPath) {

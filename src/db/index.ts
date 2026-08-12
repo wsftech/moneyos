@@ -4,6 +4,7 @@ export * from "./contas";
 export * from "./categorias";
 export * from "./transacoes";
 export * from "./contasPagarReceber";
+export * from "./resumoMensalUnificado";
 export * from "./orcamentos";
 export * from "./financiamentos";
 export { getCompromissoEmprestimosMes, reverterParcelaEmprestimoPorTransacao } from "./emprestimos";

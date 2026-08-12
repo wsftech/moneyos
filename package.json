@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:build:release": "powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1"
+      "tauri:build:release": "powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1",
+    "release": "powershell -ExecutionPolicy Bypass -File scripts/publish-release.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ContextoBadge } from "../components/ContextoSelector";
+import { useConfirm } from "../components/ConfirmDialog";
 import {
   ContextoFormSelect,
   defaultFormContexto,
@@ -27,6 +28,7 @@ import { formatCurrency, labelMes, mesAtual } from "../utils/format";
 type AbaOrcamento = TipoCategoria;
 export function OrcamentosPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [mes, setMes] = useState(mesAtual());
   const [aba, setAba] = useState<AbaOrcamento>("despesa");
   const [orcamentos, setOrcamentos] = useState<OrcamentoComProgresso[]>([]);
@@ -90,12 +92,23 @@ export function OrcamentosPage() {
   }, [orcamentosAba, aba]);
   async function handleDelete(orc: OrcamentoComProgresso) {
     const cat = findCategoriaById(categorias, orc.categoria_id);
-    if (!confirm(`Excluir "${tituloOrcamento(orc, cat)}" deste mês?`)) return;
+    if (
+      !(await confirm({
+        message: `Excluir "${tituloOrcamento(orc, cat)}" deste mês?`,
+      }))
+    ) {
+      return;
+    }
     let pararRecorrencia = false;
     if (orc.recorrente_id) {
-      pararRecorrencia = confirm(
-        "Este item se repete todo mês.\n\nOK = parar recorrência (não aparecerá nos próximos meses)\nCancelar = manter recorrência (remove só este mês)",
-      );
+      pararRecorrencia = await confirm({
+        title: "Parar recorrência?",
+        message:
+          "Este item se repete todo mês. Deseja também parar a recorrência para os próximos meses?\n\nSe cancelar, remove só este mês e a recorrência continua.",
+        confirmLabel: "Parar recorrência",
+        cancelLabel: "Manter recorrência",
+        tone: "danger",
+      });
     }
     try {
       await deleteOrcamento(orc.id);
@@ -405,6 +418,7 @@ function OrcamentoModal({
   onSaved: () => void;
 }) {
   const { contexto } = useContexto();
+  const confirm = useConfirm();
   const isReceita = tipoOrcamento === "receita";
   const [formContexto, setFormContexto] = useState<Contexto>(defaultFormContexto(contexto));
   const [categoriaId, setCategoriaId] = useState("");
@@ -486,9 +500,13 @@ function OrcamentoModal({
   async function handlePararRecorrencia() {
     if (!orcamento?.recorrente_id) return;
     if (
-      !confirm(
-        "Parar recorrência? O item deixa de ser criado automaticamente nos próximos meses. Os meses já cadastrados permanecem.",
-      )
+      !(await confirm({
+        title: "Parar recorrência",
+        message:
+          "O item deixa de ser criado automaticamente nos próximos meses. Os meses já cadastrados permanecem.",
+        confirmLabel: "Parar recorrência",
+        tone: "danger",
+      }))
     ) {
       return;
     }

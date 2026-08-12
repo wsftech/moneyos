@@ -27,3 +27,15 @@ dist-ssr
 src-tauri/.signing/
 src-tauri/tauri.release.conf.json
 latest.json
+
+# Dados locais / backups (nunca versionar banco do usuário)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.key
+*.pem
+.env
+.env.*
+!.env.example

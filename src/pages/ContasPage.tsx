@@ -2,6 +2,7 @@
 import { Link } from "react-router-dom";
 import { ContextoBadge } from "../components/ContextoSelector";
 import { ContaIcone, IconeContaPicker } from "../components/ContaIcone";
+import { useConfirm } from "../components/ConfirmDialog";
 import {
   ContextoFormSelect,
   defaultFormContexto,
@@ -43,6 +44,7 @@ const CORES = ["#EC0000", "#820AD1", "#EC7000", "#CC092F", "#0070AF", "#22c55e",
 
 export function ContasPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [contas, setContas] = useState<ContaComSaldo[]>([]);
   const [resumosCartao, setResumosCartao] = useState<Map<number, ResumoCartaoCredito>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -79,7 +81,7 @@ export function ContasPage() {
   }, [carregar, ctxLoading]);
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir esta conta?")) return;
+    if (!(await confirm("Excluir esta conta?"))) return;
     try {
       await deleteConta(id);
       await carregar();

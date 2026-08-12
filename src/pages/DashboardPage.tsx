@@ -19,16 +19,16 @@ import { Input } from "../components/ui/FormFields";
 import { useContexto } from "../contexts/ContextoContext";
 import { getAlertasOrcamento } from "../db/alertasOrcamento";
 import { findCategoriaById, listCategorias } from "../db/categorias";
-import {
-  getComparativoMensalPagarReceber,
-  getResumoMensalPagarReceber,
-  type ComparativoMensalPagarReceber,
-  type ResumoMensalPagarReceber,
-} from "../db/contasPagarReceber";
 import { getFluxoProjetado } from "../db/fluxoProjetado";
 import { listMetasFinanceiras } from "../db/metas";
 import { getPatrimonioResumo } from "../db/patrimonio";
 import { listProximosVencimentosUnificados, vencimentoEstaAtrasado } from "../db/proximosVencimentos";
+import {
+  getComparativoMensalEntradasSaidas,
+  getResumoMensalEntradasSaidas,
+  type ComparativoMensalEntradasSaidas,
+  type ResumoMensalEntradasSaidas,
+} from "../db/resumoMensalUnificado";
 import {
   getComparativoMensal,
   getGastoPorCategoria,
@@ -97,11 +97,9 @@ export function DashboardPage() {
   const [vencimentos, setVencimentos] = useState<
     Awaited<ReturnType<typeof listProximosVencimentosUnificados>>
   >([]);
-  const [resumoPagarReceber, setResumoPagarReceber] = useState<ResumoMensalPagarReceber | null>(
-    null,
-  );
-  const [comparativoPagarReceber, setComparativoPagarReceber] = useState<
-    (ComparativoMensalPagarReceber & { mesLabel: string })[]
+  const [resumoMes, setResumoMes] = useState<ResumoMensalEntradasSaidas | null>(null);
+  const [comparativoMes, setComparativoMes] = useState<
+    (ComparativoMensalEntradasSaidas & { mesLabel: string })[]
   >([]);
   const [fluxoProjetado, setFluxoProjetado] = useState<FluxoProjetadoResumo | null>(null);
   const [patrimonio, setPatrimonio] = useState<PatrimonioResumo | null>(null);
@@ -113,15 +111,15 @@ export function DashboardPage() {
     setError(null);
     try {
       const meses12 = mesesAnteriores(12);
-      const mesesPagarReceber = mesesAoRedor(mes, 2, 3);
-      const [r, comp, gastosM, todasCat, v, resumoPr, compPr, fp, pat, al, met] = await Promise.all([
+      const mesesUnificado = mesesAoRedor(mes, 2, 3);
+      const [r, comp, gastosM, todasCat, v, resumoU, compU, fp, pat, al, met] = await Promise.all([
         getResumoMensal(mes, contexto),
         getComparativoMensal(meses12, contexto),
         getGastoPorCategoria(mes, contexto),
         listCategorias("consolidado"),
         listProximosVencimentosUnificados(contexto, 6),
-        getResumoMensalPagarReceber(mes, contexto),
-        getComparativoMensalPagarReceber(mesesPagarReceber, contexto),
+        getResumoMensalEntradasSaidas(mes, contexto),
+        getComparativoMensalEntradasSaidas(mesesUnificado, contexto),
         getFluxoProjetado(contexto),
         getPatrimonioResumo(contexto),
         getAlertasOrcamento(contexto, mes),
@@ -132,8 +130,8 @@ export function DashboardPage() {
       setComparativo(comp.map((c) => ({ ...c, mesLabel: mesCurto(c.mes) })));
       setGastosMes(mapGastosCategoria(gastosM, todasCat));
       setVencimentos(v);
-      setResumoPagarReceber(resumoPr);
-      setComparativoPagarReceber(compPr.map((c) => ({ ...c, mesLabel: mesCurto(c.mes) })));
+      setResumoMes(resumoU);
+      setComparativoMes(compU.map((c) => ({ ...c, mesLabel: mesCurto(c.mes) })));
       setFluxoProjetado(fp);
       setPatrimonio(pat);
       setAlertas(al);
@@ -253,82 +251,102 @@ export function DashboardPage() {
         <KpiCard
           title="Saldo do mês"
           value={`${resultadoMes >= 0 ? "" : "-"}${formatCurrency(Math.abs(resultadoMes))}`}
-          subtitle="Receitas − despesas no período"
+          subtitle="Realizado: receitas − despesas"
           accent="sky"
           valueClass={resultadoMes >= 0 ? "text-emerald-600" : "text-rose-600"}
         />
         <KpiCard
           title="Receitas"
           value={formatCurrency(resumo.receitas)}
-          subtitle={labelMes(mes)}
+          subtitle={`Realizado · ${labelMes(mes)}`}
           accent="emerald"
           valueClass="text-slate-900"
         />
         <KpiCard
           title="Despesas"
           value={formatCurrency(resumo.despesas)}
-          subtitle={labelMes(mes)}
+          subtitle={`Realizado · ${labelMes(mes)}`}
           accent="rose"
           valueClass="text-slate-900"
         />
       </div>
 
-      {resumoPagarReceber && (
+      {resumoMes && (
         <section className="app-card p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="font-semibold text-slate-900">A pagar × a receber</h2>
+              <h2 className="font-semibold text-slate-900">Entradas × saídas do mês</h2>
               <p className="mt-0.5 text-xs text-slate-500">
-                Valores em aberto com vencimento em {labelMes(mes)}
+                Realizado + em aberto (contas, financiamentos, empréstimos, faturas e recorrentes) ·{" "}
+                {labelMes(mes)}
               </p>
             </div>
-            <Link to="/contas-pagar-receber" className="app-link text-xs">
-              Ver contas →
-            </Link>
           </div>
 
           <div className="mb-5 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border border-rose-200 bg-rose-50/80 p-4">
-              <p className="text-xs font-medium text-rose-800">A pagar</p>
-              <p className="mt-1 text-xl font-bold text-rose-700">
-                {formatCurrency(resumoPagarReceber.a_pagar)}
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4">
+              <p className="text-xs font-medium text-emerald-800">Entradas</p>
+              <p className="mt-1 text-xl font-bold text-emerald-700">
+                {formatCurrency(resumoMes.entradas)}
               </p>
-              <p className="mt-1 text-xs text-rose-700/80">
-                {resumoPagarReceber.qtd_pagar} item(ns)
-                {resumoPagarReceber.a_pagar_atrasado > 0
-                  ? ` · ${formatCurrency(resumoPagarReceber.a_pagar_atrasado)} atrasado`
+              <p className="mt-1 text-xs text-emerald-700/80">
+                {formatCurrency(resumoMes.realizado_entradas)} realizado
+                {resumoMes.aberto_entradas > 0
+                  ? ` · ${formatCurrency(resumoMes.aberto_entradas)} em aberto`
                   : ""}
               </p>
             </div>
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4">
-              <p className="text-xs font-medium text-emerald-800">A receber</p>
-              <p className="mt-1 text-xl font-bold text-emerald-700">
-                {formatCurrency(resumoPagarReceber.a_receber)}
+            <div className="rounded-xl border border-rose-200 bg-rose-50/80 p-4">
+              <p className="text-xs font-medium text-rose-800">Saídas</p>
+              <p className="mt-1 text-xl font-bold text-rose-700">
+                {formatCurrency(resumoMes.saidas)}
               </p>
-              <p className="mt-1 text-xs text-emerald-700/80">
-                {resumoPagarReceber.qtd_receber} item(ns)
-                {resumoPagarReceber.a_receber_atrasado > 0
-                  ? ` · ${formatCurrency(resumoPagarReceber.a_receber_atrasado)} atrasado`
+              <p className="mt-1 text-xs text-rose-700/80">
+                {formatCurrency(resumoMes.realizado_saidas)} realizado
+                {resumoMes.aberto_saidas > 0
+                  ? ` · ${formatCurrency(resumoMes.aberto_saidas)} em aberto`
                   : ""}
               </p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-medium text-slate-600">Líquido do mês</p>
+              <p className="text-xs font-medium text-slate-600">Líquido previsto</p>
               <p
                 className={`mt-1 text-xl font-bold ${
-                  resumoPagarReceber.liquido >= 0 ? "text-emerald-600" : "text-rose-600"
+                  resumoMes.liquido >= 0 ? "text-emerald-600" : "text-rose-600"
                 }`}
               >
-                {resumoPagarReceber.liquido >= 0 ? "" : "−"}
-                {formatCurrency(Math.abs(resumoPagarReceber.liquido))}
+                {resumoMes.liquido >= 0 ? "" : "−"}
+                {formatCurrency(Math.abs(resumoMes.liquido))}
               </p>
-              <p className="mt-1 text-xs text-slate-500">A receber − a pagar (em aberto)</p>
+              <p className="mt-1 text-xs text-slate-500">Entradas − saídas (mês completo)</p>
             </div>
           </div>
 
-          {comparativoPagarReceber.some((c) => c.a_pagar > 0 || c.a_receber > 0) ? (
+          <div className="mb-5 grid gap-3 sm:grid-cols-2">
+            <DetalheOrigens
+              titulo="De onde vêm as entradas"
+              itens={[
+                { label: "Lançamentos realizados", valor: resumoMes.detalhe_entradas.realizado },
+                { label: "Contas a receber", valor: resumoMes.detalhe_entradas.contas_receber },
+                { label: "Recorrentes (ainda não gerados)", valor: resumoMes.detalhe_entradas.recorrentes },
+              ]}
+            />
+            <DetalheOrigens
+              titulo="Para onde vão as saídas"
+              itens={[
+                { label: "Lançamentos realizados", valor: resumoMes.detalhe_saidas.realizado },
+                { label: "Contas a pagar", valor: resumoMes.detalhe_saidas.contas_pagar },
+                { label: "Financiamentos", valor: resumoMes.detalhe_saidas.financiamentos },
+                { label: "Empréstimos", valor: resumoMes.detalhe_saidas.emprestimos },
+                { label: "Faturas de cartão", valor: resumoMes.detalhe_saidas.faturas },
+                { label: "Recorrentes (ainda não gerados)", valor: resumoMes.detalhe_saidas.recorrentes },
+              ]}
+            />
+          </div>
+
+          {comparativoMes.some((c) => c.entradas > 0 || c.saidas > 0) ? (
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={comparativoPagarReceber} barGap={4} barCategoryGap="18%">
+              <BarChart data={comparativoMes} barGap={4} barCategoryGap="18%">
                 <CartesianGrid strokeDasharray="3 3" stroke={THEME.chartGrid} vertical={false} />
                 <XAxis
                   dataKey="mesLabel"
@@ -348,16 +366,16 @@ export function DashboardPage() {
                 />
                 <Legend wrapperStyle={{ color: THEME.tick, fontSize: 12 }} />
                 <Bar
-                  dataKey="a_pagar"
-                  name="A pagar"
-                  fill={THEME.expense}
+                  dataKey="entradas"
+                  name="Entradas"
+                  fill={THEME.income}
                   radius={[6, 6, 0, 0]}
                   maxBarSize={28}
                 />
                 <Bar
-                  dataKey="a_receber"
-                  name="A receber"
-                  fill={THEME.income}
+                  dataKey="saidas"
+                  name="Saídas"
+                  fill={THEME.expense}
                   radius={[6, 6, 0, 0]}
                   maxBarSize={28}
                 />
@@ -365,7 +383,7 @@ export function DashboardPage() {
             </ResponsiveContainer>
           ) : (
             <p className="text-sm text-slate-500">
-              Nenhum valor em aberto nos meses ao redor de {labelMes(mes)}.
+              Sem movimentos nos meses ao redor de {labelMes(mes)}.
             </p>
           )}
         </section>
@@ -618,6 +636,33 @@ const KPI_ACCENTS = {
   emerald: "bg-emerald-500",
   rose: "bg-rose-500",
 } as const;
+
+function DetalheOrigens({
+  titulo,
+  itens,
+}: {
+  titulo: string;
+  itens: { label: string; valor: number }[];
+}) {
+  const visiveis = itens.filter((i) => i.valor > 0);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+      <p className="text-xs font-medium text-slate-600">{titulo}</p>
+      {visiveis.length === 0 ? (
+        <p className="mt-2 text-xs text-slate-500">Nenhum valor neste mês.</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {visiveis.map((i) => (
+            <li key={i.label} className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-slate-600">{i.label}</span>
+              <span className="font-medium text-slate-800">{formatCurrency(i.valor)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function KpiCard({
   title,

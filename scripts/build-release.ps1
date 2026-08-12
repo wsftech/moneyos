@@ -22,6 +22,16 @@ if (-not (Test-Path $PrivateKey)) {
 
 $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content $PrivateKey -Raw).Trim()
 
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+  $secure = Read-Host "Senha da chave de assinatura" -AsSecureString
+  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+  try {
+    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+  } finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+  }
+}
+
 Push-Location $Root
 
 if ($Version) {

@@ -75,41 +75,28 @@ git push origin v0.1.3
 3. Acompanhe o Actions: o job gera o instalador assinado, o `latest.json` e sobe os artefatos na release da tag.
 4. Confira em **Releases** se existem o `.exe`, o `.sig` e o `latest.json` na release mais recente.
 
-### 3. Opção B — Publicar manualmente
+### 3. Opção B — Um comando (local)
 
-Útil quando o build local já está pronto ou para validar antes do CI.
-
-```powershell
-# 1) Build assinado (opcionalmente já bumpa a versão)
-.\scripts\build-release.ps1 -Version "0.1.3"
-
-# 2) Gerar latest.json apontando para a URL da release
-.\scripts\generate-latest-json.ps1 `
-  -Version "0.1.3" `
-  -BaseUrl "https://github.com/wsftech/moneyos/releases/download/v0.1.3" `
-  -Notes "Correções e melhorias."
-```
-
-Artefatos gerados:
-
-- Instalador: `src-tauri\target\release\bundle\nsis\*-setup.exe` (+ `.sig`)
-- Manifesto: `latest.json` na raiz do projeto
-
-> **Atenção:** o `gh` sobe o instalador como `WSF.Money_...` (ponto no lugar do espaço). O script `generate-latest-json.ps1` já gera a URL com esse nome. Se o download der **404**, abra o `latest.json` e confira se a URL usa `WSF.Money_` e não `WSF%20Money_`.
-
-Publique no GitHub:
+Com a working tree limpa em `main`:
 
 ```powershell
-# Criar release + upload (requer GitHub CLI: https://cli.github.com/)
-gh release create v0.1.3 `
-  --title "v0.1.3" `
-  --notes "Correções e melhorias." `
-  "src-tauri\target\release\bundle\nsis\*-setup.exe" `
-  "src-tauri\target\release\bundle\nsis\*-setup.exe.sig" `
-  latest.json
+# patch 0.1.8 -> 0.1.9 (padrão)
+.\scripts\publish-release.ps1
+
+# ou:
+.\scripts\publish-release.ps1 -Bump minor
+.\scripts\publish-release.ps1 -Version "0.2.0" -Notes "Nova tela de relatorios."
 ```
 
-Se preferir pela UI: **Releases → Draft a new release** → tag `v0.1.3` → anexe o instalador, o `.sig` e o `latest.json`.
+O script: atualiza a versão → pede a senha da chave → gera o instalador → commit/tag/push → publica no GitHub (`setup.exe`, `.sig`, `latest.json`).
+
+Requer [GitHub CLI](https://cli.github.com/) autenticado (`gh auth login`). A senha da chave **não** fica no repositório; use o prompt ou a variável `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+Só build (sem publicar):
+
+```powershell
+.\scripts\build-release.ps1 -Version "0.1.9"
+```
 
 ### 4. Checklist pós-publicação
 
@@ -123,9 +110,10 @@ Se preferir pela UI: **Releases → Draft a new release** → tag `v0.1.3` → a
 | Script | Uso |
 | --- | --- |
 | `scripts/setup-release.ps1` | Gera chaves e configura pubkey |
-| `scripts/set-version.cjs` | Atualiza versão em `package.json` e `tauri.conf.json` |
+| `scripts/set-version.cjs` | Atualiza versão em `package.json`, `tauri.conf.json` e `Cargo.toml` |
 | `scripts/build-release.ps1` | Build NSIS assinado (+ updater artifacts) |
 | `scripts/generate-latest-json.ps1` | Monta `latest.json` a partir do build |
+| `scripts/publish-release.ps1` | Bump + build + tag + GitHub Release |
 
 Exemplo só de bump de versão (sem build):
 

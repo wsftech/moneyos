@@ -5,6 +5,7 @@ import {
   defaultFormContexto,
   resolveContexto,
 } from "../components/ContextoFormSelect";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
 import { Input, Select } from "../components/ui/FormFields";
@@ -26,6 +27,7 @@ const CORES = ["#6366f1", "#22c55e", "#f59e0b", "#06b6d4", "#ec4899"];
 
 export function MetasPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [metas, setMetas] = useState<MetaFinanceiraComProgresso[]>([]);
   const [contas, setContas] = useState<Awaited<ReturnType<typeof listContas>>>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +54,7 @@ export function MetasPage() {
   }, [carregar, ctxLoading]);
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir esta meta?")) return;
+    if (!(await confirm("Excluir esta meta?"))) return;
     try {
       await deleteMetaFinanceira(id);
       await carregar();

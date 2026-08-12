@@ -11,6 +11,7 @@ import {
 import { resolverLogoPreview } from "../db/logosConta";
 import { getErrorMessage } from "../db/utils";
 import type { TipoConta } from "../types";
+import { useConfirm } from "./ConfirmDialog";
 import { Button } from "./ui/Button";
 
 const LOGO_FILTERS = [
@@ -99,6 +100,7 @@ export function IconeContaPicker({
   onBancoPreset,
   previewCor,
 }: PickerProps) {
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previewPath = pendingLogoSource ?? logoPath;
@@ -125,9 +127,23 @@ export function IconeContaPicker({
     }
   }
 
-  function handleRemoverLogo() {
+  function clearLogo() {
     onPendingLogoSourceChange(null);
     onLogoPathChange(null);
+  }
+
+  async function handleRemoverLogo() {
+    if (
+      !(await confirm({
+        title: "Remover logo",
+        message: "Remover o logo desta conta?",
+        confirmLabel: "Remover",
+        tone: "danger",
+      }))
+    ) {
+      return;
+    }
+    clearLogo();
   }
 
   return (
@@ -190,7 +206,7 @@ export function IconeContaPicker({
               title={item.label}
               onClick={() => {
                 onChange(item.icone);
-                handleRemoverLogo();
+                clearLogo();
               }}
               className={`flex h-10 w-10 items-center justify-center rounded-lg border text-lg transition-colors ${
                 value === item.icone && !previewPath
@@ -228,7 +244,12 @@ export function IconeContaPicker({
             {loading ? "Abrindo…" : previewPath ? "Trocar logo" : "Enviar logo"}
           </Button>
           {previewPath && (
-            <Button type="button" variant="ghost" className="text-xs" onClick={handleRemoverLogo}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-xs"
+              onClick={() => void handleRemoverLogo()}
+            >
               Remover logo
             </Button>
           )}

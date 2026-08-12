@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner } from "../components/ui/Feedback";
 import { Input, Select } from "../components/ui/FormFields";
@@ -17,6 +18,7 @@ import type { ContextoCategoria, RegraCategorizacao } from "../types";
 
 export function ConfiguracoesRegrasPage() {
   const { loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [regras, setRegras] = useState<RegraCategorizacao[]>([]);
   const [categorias, setCategorias] = useState<Awaited<ReturnType<typeof listCategorias>>>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +48,7 @@ export function ConfiguracoesRegrasPage() {
   }, [carregar, ctxLoading]);
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir esta regra?")) return;
+    if (!(await confirm("Excluir esta regra?"))) return;
     try {
       await deleteRegraCategorizacao(id);
       await carregar();

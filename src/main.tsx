@@ -5,6 +5,7 @@ import {
   AtualizacaoBackgroundCheck,
   AtualizacaoProvider,
 } from "./components/AtualizacaoProvider";
+import { ConfirmProvider } from "./components/ConfirmDialog";
 import { SplashGate } from "./components/SplashGate";
 import { ContextoProvider } from "./contexts/ContextoContext";
 import { agendarFechamentoSplashFallback, fecharSplashscreen } from "./services/splash";
@@ -17,12 +18,14 @@ void fecharSplashscreen();
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ContextoProvider>
-      <AtualizacaoProvider>
-        <SplashGate>
-          <App />
-          <AtualizacaoBackgroundCheck />
-        </SplashGate>
-      </AtualizacaoProvider>
+      <ConfirmProvider>
+        <AtualizacaoProvider>
+          <SplashGate>
+            <App />
+            <AtualizacaoBackgroundCheck />
+          </SplashGate>
+        </AtualizacaoProvider>
+      </ConfirmProvider>
     </ContextoProvider>
   </React.StrictMode>,
 );

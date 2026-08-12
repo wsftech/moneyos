@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { ErrorAlert } from "../components/ui/Feedback";
 import { backupDatabase, getDatabasePath, restoreDatabase } from "../db/backup";
 import { getErrorMessage } from "../db/utils";
 
 export function ConfiguracoesDadosPage() {
+  const confirm = useConfirm();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,9 +43,13 @@ export function ConfiguracoesDadosPage() {
 
   async function handleRestore() {
     if (
-      !confirm(
-        "Restaurar backup substituirá todos os dados atuais. A aplicação será recarregada. Continuar?",
-      )
+      !(await confirm({
+        title: "Restaurar backup",
+        message:
+          "Restaurar o backup substituirá todos os dados atuais. A aplicação será recarregada.",
+        confirmLabel: "Restaurar",
+        tone: "danger",
+      }))
     ) {
       return;
     }

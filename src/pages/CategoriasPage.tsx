@@ -1,5 +1,6 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ContextoBadge } from "../components/ContextoSelector";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
 import { Input, Select } from "../components/ui/FormFields";
@@ -39,6 +40,7 @@ const CORES_PASSIVO = ["#ff2d55", "#fb7185", "#f97316", "#ef4444", "#ec4899", "#
 
 export function CategoriasPage() {
   const { contexto, loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export function CategoriasPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir esta categoria?")) return;
+    if (!(await confirm("Excluir esta categoria?"))) return;
     try {
       await deleteCategoria(id);
       await carregar();

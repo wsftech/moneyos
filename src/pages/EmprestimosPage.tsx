@@ -5,6 +5,7 @@ import {
   defaultFormContexto,
   resolveContexto,
 } from "../components/ContextoFormSelect";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
 import { Input, Select, Textarea } from "../components/ui/FormFields";
@@ -44,6 +45,7 @@ export function EmprestimosPage({
   onChanged?: () => void;
 } = {}) {
   const { contexto, loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [items, setItems] = useState<EmprestimoResumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export function EmprestimosPage({
   }, [carregar, ctxLoading]);
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir este empréstimo e todas as parcelas?")) return;
+    if (!(await confirm("Excluir este empréstimo e todas as parcelas?"))) return;
     try {
       await deleteEmprestimo(id);
       await carregar();

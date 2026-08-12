@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { ErrorAlert, LoadingSpinner } from "../components/ui/Feedback";
 import { Input, Select } from "../components/ui/FormFields";
@@ -9,6 +10,7 @@ import type { ContextoCategoria } from "../types";
 
 export function ConfiguracoesTagsPage() {
   const { contexto } = useContexto();
+  const confirm = useConfirm();
   const [tags, setTags] = useState<Awaited<ReturnType<typeof listTags>>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function ConfiguracoesTagsPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm("Excluir esta tag? Será removida das transações vinculadas.")) return;
+    if (!(await confirm("Excluir esta tag? Será removida das transações vinculadas."))) return;
     try {
       await deleteTag(id);
       await carregar();
