@@ -1,7 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-const SPLASH_MIN_MS = 700;
-const SPLASH_MAX_MS = 3500;
+const SPLASH_MIN_MS = 900;
+const SPLASH_MAX_MS = 5000;
 const startedAt = Date.now();
 let fechando = false;
 let fechada = false;

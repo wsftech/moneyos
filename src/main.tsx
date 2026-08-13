@@ -8,12 +8,11 @@ import {
 import { ConfirmProvider } from "./components/ConfirmDialog";
 import { SplashGate } from "./components/SplashGate";
 import { ContextoProvider } from "./contexts/ContextoContext";
-import { agendarFechamentoSplashFallback, fecharSplashscreen } from "./services/splash";
+import { agendarFechamentoSplashFallback } from "./services/splash";
 import "./index.css";
 
-// Fecha a splash o mais cedo possível (não depende do React tree).
+// Só agenda o timeout de segurança — a splash fecha quando o boot estiver pronto.
 agendarFechamentoSplashFallback();
-void fecharSplashscreen();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

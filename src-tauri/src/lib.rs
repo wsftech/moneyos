@@ -265,7 +265,7 @@ pub fn run() {
             // Segurança: se o frontend não chamar fechar_splashscreen, revela o app mesmo assim.
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(4));
+                std::thread::sleep(std::time::Duration::from_secs(6));
                 revelar_app(&handle);
             });
             Ok(())

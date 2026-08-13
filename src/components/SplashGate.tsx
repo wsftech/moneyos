@@ -1,15 +1,22 @@
 import { useEffect } from "react";
+import { useContexto } from "../contexts/ContextoContext";
 import { agendarFechamentoSplashFallback, fecharSplashscreen } from "../services/splash";
 
 /**
- * Fecha a splash assim que o React monta (não espera DB/contexto).
- * Há também timeout de segurança no Rust (~4s).
+ * Mantém a splash até o contexto (e o boot básico do app) estar pronto.
+ * Fallback de segurança: timeout no frontend + ~5s no Rust.
  */
 export function SplashGate({ children }: { children: React.ReactNode }) {
+  const { loading } = useContexto();
+
   useEffect(() => {
     agendarFechamentoSplashFallback();
-    void fecharSplashscreen();
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    void fecharSplashscreen();
+  }, [loading]);
 
   return <>{children}</>;
 }
