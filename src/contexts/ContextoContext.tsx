@@ -12,7 +12,7 @@ import { categoriaContextoMatches, contextoMatches } from "../db/utils";
 import type { Contexto, ContextoCategoria, ContextoVisualizacao } from "../types";
 
 const CONFIG_KEY = "contexto_visualizacao";
-const DEFAULT_CONTEXTO: ContextoVisualizacao = "consolidado";
+const DEFAULT_CONTEXTO: ContextoVisualizacao = "pessoal";
 
 interface ContextoContextValue {
   contexto: ContextoVisualizacao;

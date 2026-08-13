@@ -12,6 +12,7 @@ import type {
   TipoContaPagarReceber,
 } from "../types";
 import { arredondarMoeda } from "../utils/format";
+import { addDays } from "../utils/dates";
 
 export type OrigemProximoVencimento =
   | "conta"
@@ -208,21 +209,23 @@ export async function listProximosVencimentosUnificados(
   return todos.slice(0, limite);
 }
 
-/** Conta só contas a pagar atrasadas (o que a tela A pagar/receber mostra). */
+/** Atrasados e o que vence nos próximos `dias` (inclui hoje). */
+export async function listAcoesAgora(
+  contexto?: ContextoVisualizacao,
+  dias = 7,
+): Promise<ProximoVencimentoUnificado[]> {
+  const todos = await listTodosVencimentos(contexto);
+  const hoje = hojeIso();
+  const limite = addDays(hoje, dias);
+  return todos.filter(
+    (v) => estaAtrasado(v.status) || (v.vencimento >= hoje && v.vencimento <= limite),
+  );
+}
+
+/** Conta atrasados no mesmo universo do “Fazer agora” (agenda, parcelas e faturas). */
 export async function contarVencimentosAtrasados(
   contexto?: ContextoVisualizacao,
 ): Promise<number> {
-  await sincronizarStatusContasPagarReceber();
-  return withDatabase(async () => {
-    const db = await getDatabase();
-    const filter = buildContextoFilter(contexto);
-    const { query, params } = applyContextoFilter(
-      `SELECT COUNT(*) as total
-       FROM contas_a_pagar_receber
-       WHERE status = 'atrasado' AND tipo = 'pagar'${filter.clause}`,
-      filter,
-    );
-    const rows = await db.select<{ total: number }[]>(query, params);
-    return Number(rows[0]?.total ?? 0);
-  });
+  const todos = await listTodosVencimentos(contexto);
+  return todos.filter((v) => estaAtrasado(v.status)).length;
 }

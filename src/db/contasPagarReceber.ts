@@ -472,3 +472,63 @@ export async function getComparativoMensalPagarReceber(
     });
   });
 }
+
+export type AgingBucketId = "a_vencer" | "1-30" | "31-60" | "61-90" | "90+";
+
+export interface AgingBucket {
+  id: AgingBucketId;
+  label: string;
+  total: number;
+  quantidade: number;
+}
+
+export interface AgingAReceber {
+  buckets: AgingBucket[];
+  total: number;
+}
+
+function diasEntre(isoInicio: string, isoFim: string): number {
+  const [y1, m1, d1] = isoInicio.split("-").map(Number);
+  const [y2, m2, d2] = isoFim.split("-").map(Number);
+  const a = Date.UTC(y1, m1 - 1, d1);
+  const b = Date.UTC(y2, m2 - 1, d2);
+  return Math.floor((b - a) / 86_400_000);
+}
+
+/** Aging de contas a receber em aberto (pendente + atrasado). */
+export async function getAgingAReceber(
+  contexto?: ContextoVisualizacao,
+): Promise<AgingAReceber> {
+  const itens = await listContasPagarReceber({
+    contexto,
+    tipo: "receber",
+  });
+  const abertos = itens.filter((i) => i.status === "pendente" || i.status === "atrasado");
+  const hoje = todayIsoDate();
+
+  const buckets: AgingBucket[] = [
+    { id: "a_vencer", label: "A vencer", total: 0, quantidade: 0 },
+    { id: "1-30", label: "1–30 dias", total: 0, quantidade: 0 },
+    { id: "31-60", label: "31–60 dias", total: 0, quantidade: 0 },
+    { id: "61-90", label: "61–90 dias", total: 0, quantidade: 0 },
+    { id: "90+", label: "90+ dias", total: 0, quantidade: 0 },
+  ];
+
+  for (const item of abertos) {
+    const diasAtraso = diasEntre(item.vencimento, hoje);
+    let bucket: AgingBucket;
+    if (diasAtraso <= 0) bucket = buckets[0];
+    else if (diasAtraso <= 30) bucket = buckets[1];
+    else if (diasAtraso <= 60) bucket = buckets[2];
+    else if (diasAtraso <= 90) bucket = buckets[3];
+    else bucket = buckets[4];
+    bucket.total = arredondarMoeda(bucket.total + item.valor);
+    bucket.quantidade += 1;
+  }
+
+  return {
+    buckets,
+    total: arredondarMoeda(abertos.reduce((s, i) => s + i.valor, 0)),
+  };
+}
+

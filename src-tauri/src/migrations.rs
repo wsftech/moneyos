@@ -98,5 +98,11 @@ pub fn get_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/016_conta_logo.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 17,
+            description: "ativos_manuais",
+            sql: include_str!("../migrations/017_ativos_manuais.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

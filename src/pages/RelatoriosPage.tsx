@@ -21,6 +21,7 @@ import { findCategoriaById, listCategorias } from "../db/categorias";
 import { getDreSimplificada } from "../db/dre";
 import { getRelatorioEndividamento } from "../db/endividamento";
 import { getFluxoProjetado12Meses } from "../db/fluxoProjetado";
+import { getResumoMensalEntradasSaidas, type ResumoMensalEntradasSaidas } from "../db/resumoMensalUnificado";
 import { getComparativoMensal, getGastoPorCategoria, listTransacoesParaExportacao, type GastoPorCategoriaResumo } from "../db/transacoes";
 import { getResultadoPorTag } from "../db/tags";
 import { getErrorMessage } from "../db/utils";
@@ -68,13 +69,14 @@ export function RelatoriosPage() {
   const [endividamento, setEndividamento] = useState<RelatorioEndividamento | null>(null);
   const [fluxo12, setFluxo12] = useState<FluxoProjetado12Meses | null>(null);
   const [resultadoTags, setResultadoTags] = useState<ResultadoPorTag[]>([]);
+  const [resumoMes, setResumoMes] = useState<ResumoMensalEntradasSaidas | null>(null);
 
   const carregar = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const meses = mesesAnteriores(6);
-      const [gastos, comp, todasCat, dreMes, endiv, fluxo, tagsMes] = await Promise.all([
+      const [gastos, comp, todasCat, dreMes, endiv, fluxo, tagsMes, resumo] = await Promise.all([
         getGastoPorCategoria(mes, contexto),
         getComparativoMensal(meses, contexto),
         listCategorias("consolidado"),
@@ -82,6 +84,7 @@ export function RelatoriosPage() {
         getRelatorioEndividamento(contexto, mes),
         getFluxoProjetado12Meses(contexto),
         getResultadoPorTag(mes, contexto),
+        getResumoMensalEntradasSaidas(mes, contexto),
       ]);
 
       setGastosCategoria(mapGastosRelatorio(gastos, todasCat));
@@ -95,6 +98,7 @@ export function RelatoriosPage() {
       setEndividamento(endiv);
       setFluxo12(fluxo);
       setResultadoTags(tagsMes);
+      setResumoMes(resumo);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -174,7 +178,11 @@ export function RelatoriosPage() {
             <IndicadorCard
               label="Patrimônio líquido"
               value={formatCurrency(endividamento.patrimonio.patrimonio_liquido)}
-              hint={`Contas ${formatCurrency(endividamento.patrimonio.saldo_contas)} - D—vidas ${formatCurrency(endividamento.total_dividas)}`}
+              hint={
+                endividamento.patrimonio.ativos_manuais > 0
+                  ? `Contas ${formatCurrency(endividamento.patrimonio.saldo_contas)} + bens ${formatCurrency(endividamento.patrimonio.ativos_manuais)} − dívidas ${formatCurrency(endividamento.total_dividas)}`
+                  : `Contas ${formatCurrency(endividamento.patrimonio.saldo_contas)} − dívidas ${formatCurrency(endividamento.total_dividas)}`
+              }
               tone={endividamento.patrimonio.patrimonio_liquido >= 0 ? "green" : "red"}
             />
             <IndicadorCard
@@ -286,21 +294,22 @@ export function RelatoriosPage() {
         <section className="mb-6 app-card p-5">
           <h2 className="mb-1 font-semibold text-slate-900">Fluxo de caixa — 12 meses</h2>
           <p className="mb-4 text-xs text-slate-500">
-            Projeção mensal com vencimentos, recorrentes e faturas de cartão
+            Projeção mensal com vencimentos, recorrentes e ciclos de cartão (faturas abertas + estimativa futura)
           </p>
 
           <div className="mb-4 grid gap-3 sm:grid-cols-3">
             <IndicadorCard
-              label="Saldo hoje"
+              label="Caixa hoje"
               value={formatCurrency(fluxo12.saldo_atual)}
+              hint="Banco, dinheiro e poupança (mesmo critério do Início)"
             />
             <IndicadorCard
-              label="Saldo em 12 meses"
+              label="Caixa em 12 meses"
               value={formatCurrency(fluxo12.saldo_final_12m)}
               tone={fluxo12.saldo_final_12m >= 0 ? "green" : "red"}
             />
             <IndicadorCard
-              label="Saldo mínimo projetado"
+              label="Caixa mínimo projetado"
               value={formatCurrency(fluxo12.saldo_minimo)}
               hint={
                 fluxo12.mes_saldo_minimo
@@ -333,7 +342,7 @@ export function RelatoriosPage() {
               <Line
                 type="monotone"
                 dataKey="saldo_final"
-                name="Saldo final"
+                name="Caixa final"
                 stroke="#22d3ee"
                 strokeWidth={2}
                 dot={{ r: 3, fill: "#22d3ee" }}
@@ -346,10 +355,10 @@ export function RelatoriosPage() {
       {dre && (
         <section className="mb-6 app-card p-5">
           <h2 className="mb-1 font-semibold text-slate-900">
-            Resultado do m—s — {labelMes(mes)}
+            Resultado de caixa — {labelMes(mes)}
           </h2>
           <p className="mb-4 text-xs text-slate-500">
-            Regime de caixa: receitas e despesas efetivadas no per—odo (n—o — DRE cont—bil)
+            Só o que já entrou ou saiu da conta neste mês. Não é DRE contábil de competência.
           </p>
           <div className="grid gap-6 lg:grid-cols-2">
             <div>
@@ -409,6 +418,38 @@ export function RelatoriosPage() {
           </div>
         </section>
       )}
+
+      {resumoMes && (
+        <section className="mb-6 app-card p-5">
+          <h2 className="mb-1 font-semibold text-slate-900">
+            Compromissos de {labelMes(mes)} (por vencimento)
+          </h2>
+          <p className="mb-4 text-xs text-slate-500">
+            Aproximação prática — não substitui regime de competência contábil. Soma o que
+            ainda está em aberto no mês (agenda, parcelas, faturas, recorrentes não gerados)
+            além do que já foi efetivado.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <IndicadorCard
+              label="Já efetivado (caixa)"
+              value={formatCurrency(resumoMes.realizado_entradas - resumoMes.realizado_saidas)}
+              tone={resumoMes.realizado_entradas - resumoMes.realizado_saidas >= 0 ? "green" : "red"}
+            />
+            <IndicadorCard
+              label="Ainda a receber / a pagar"
+              value={formatCurrency(resumoMes.aberto_entradas - resumoMes.aberto_saidas)}
+              hint={`A receber ${formatCurrency(resumoMes.aberto_entradas)} · a pagar ${formatCurrency(resumoMes.aberto_saidas)}`}
+            />
+            <IndicadorCard
+              label="Com o que ainda vence"
+              value={formatCurrency(resumoMes.entradas - resumoMes.saidas)}
+              tone={resumoMes.entradas - resumoMes.saidas >= 0 ? "green" : "red"}
+              hint="Efetivado + compromissos em aberto do mês"
+            />
+          </div>
+        </section>
+      )}
+
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="app-card p-5">

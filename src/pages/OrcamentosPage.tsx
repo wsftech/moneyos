@@ -136,16 +136,16 @@ export function OrcamentosPage() {
   return (
     <div>
       <PageHeader
-        title="Or�amentos"
+        title="Orçamentos"
         subtitle={
           isReceita
-            ? "Metas mensais de receita com realizado e valores a receber"
+            ? "Receita planejada do mês — realizado e valores a receber"
             : "Limites mensais por categoria ou item fixo (ex.: aluguel)"
         }
         action={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => void handleCopiarMesAnterior()}>
-              Copiar m�s anterior
+              Copiar mês anterior
             </Button>
             <Button
               onClick={() => {
@@ -153,7 +153,7 @@ export function OrcamentosPage() {
                 setModalOpen(true);
               }}
             >
-              + Novo or�amento
+              + Novo orçamento
             </Button>
           </div>
         }
@@ -161,7 +161,7 @@ export function OrcamentosPage() {
       <div className="mb-4 flex flex-wrap items-end gap-4">
         <div className="max-w-xs flex-1">
           <Input
-            label="M�s de refer�ncia"
+            label="Mês de referência"
             type="month"
             value={mes}
             onChange={(e) => setMes(e.target.value)}
@@ -203,18 +203,40 @@ export function OrcamentosPage() {
         <EmptyState
           message={
             isReceita
-              ? `Nenhuma meta de receita para ${labelMes(mes)}.`
+              ? `Nenhuma receita planejada para ${labelMes(mes)}.`
               : `Nenhum orçamento de despesa para ${labelMes(mes)}.`
           }
         />
       ) : (
         <div className="space-y-4">
+          {!isReceita && (
+            <div
+              className={`app-card p-5 ${
+                totais.saldo >= 0 ? "border-emerald-200" : "border-rose-200"
+              }`}
+            >
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Disponível para gastar neste mês
+              </p>
+              <p
+                className={`mt-1 text-3xl font-bold tracking-tight ${
+                  totais.saldo >= 0 ? "text-emerald-700" : "text-rose-700"
+                }`}
+              >
+                {formatCurrency(totais.saldo)}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                Limite {formatCurrency(totais.limiteTotal)} − já usado/comprometido{" "}
+                {formatCurrency(totais.previstoTotal)}. É o “envelope” do mês — não o saldo do banco.
+              </p>
+            </div>
+          )}
           <div className="app-card p-5">
             <div className="mb-4 grid gap-4 sm:grid-cols-3">
               <ResumoCard
-                title={isReceita ? "Meta total" : "Limite total"}
+                title={isReceita ? "Planejado total" : "Limite total"}
                 value={formatCurrency(totais.limiteTotal)}
-                subtitle={`${orcamentosAba.length} item(ns) com ${isReceita ? "meta" : "orçamento"}`}
+                subtitle={`${orcamentosAba.length} item(ns) com ${isReceita ? "receita planejada" : "orçamento"}`}
                 accent="indigo"
               />
               <ResumoCard
@@ -230,15 +252,15 @@ export function OrcamentosPage() {
                 accent="amber"
               />
               <ResumoCard
-                title={isReceita ? "Previsto vs meta" : "Utilizado vs limite"}
+                title={isReceita ? "Previsto vs planejado" : "Utilizado vs limite"}
                 value={formatCurrency(totais.previstoTotal)}
                 subtitle={
                   isReceita
                     ? totais.saldo > 0
-                      ? `${formatCurrency(totais.saldo)} faltando para a meta`
-                      : `${formatCurrency(Math.abs(totais.saldo))} acima da meta`
+                      ? `${formatCurrency(totais.saldo)} faltando para o planejado`
+                      : `${formatCurrency(Math.abs(totais.saldo))} acima do planejado`
                     : totais.saldo >= 0
-                      ? `${formatCurrency(totais.saldo)} disponível`
+                      ? `${formatCurrency(totais.saldo)} ainda disponível`
                       : `${formatCurrency(Math.abs(totais.saldo))} acima do limite`
                 }
                 accent={totais.alerta ? "red" : "green"}
@@ -265,9 +287,9 @@ export function OrcamentosPage() {
                 totais.alerta ? "font-medium text-rose-600" : "text-slate-500"
               }`}
             >
-              {totais.percentual.toFixed(0)}% {isReceita ? "da meta prevista" : "do limite utilizado"}
+              {totais.percentual.toFixed(0)}% {isReceita ? "do planejado" : "do limite utilizado"}
               {totais.alerta &&
-                (isReceita ? " — abaixo da meta!" : " — orçamento geral excedido!")}
+                (isReceita ? " — abaixo do planejado!" : " — orçamento geral excedido!")}
             </p>
           </div>
           {orcamentosAba.map((orc) => {
@@ -348,9 +370,9 @@ export function OrcamentosPage() {
                     alertaItem ? "font-medium text-rose-600" : "text-slate-500"
                   }`}
                 >
-                  {orc.percentual.toFixed(0)}% {isReceita ? "da meta" : "utilizado"}
+                  {orc.percentual.toFixed(0)}% {isReceita ? "do planejado" : "utilizado"}
                   {alertaItem &&
-                    (isReceita ? " — abaixo da meta!" : " — limite excedido!")}
+                    (isReceita ? " — abaixo do planejado!" : " — limite excedido!")}
                 </p>
               </div>
             );
@@ -527,10 +549,10 @@ function OrcamentoModal({
       title={
         orcamento
           ? isReceita
-            ? "Editar meta de receita"
+            ? "Editar receita planejada"
             : "Editar orçamento"
           : isReceita
-            ? "Nova meta de receita"
+            ? "Nova receita planejada"
             : "Novo orçamento"
       }
     >
@@ -552,7 +574,7 @@ function OrcamentoModal({
         />
         <Input label="Mês" type="month" value={mesRef} onChange={(e) => setMesRef(e.target.value)} />
         <Input
-          label={isReceita ? "Valor da meta" : "Valor limite"}
+          label={isReceita ? "Valor planejado" : "Valor limite"}
           type="number"
           step="0.01"
           min="0"
@@ -572,7 +594,7 @@ function OrcamentoModal({
               <span className="text-sm font-medium text-slate-700">Repetir todo mês</span>
               <p className="mt-0.5 text-xs text-slate-500">
                 {isReceita
-                  ? "Ideal para receitas recorrentes como mensalidades. A meta será recriada automaticamente nos meses seguintes."
+                  ? "Ideal para receitas recorrentes como mensalidades. O valor planejado será recriado automaticamente nos meses seguintes."
                   : "Ideal para despesas fixas como aluguel. O limite será recriado automaticamente nos meses seguintes."}
               </p>
             </div>
@@ -598,7 +620,7 @@ function OrcamentoModal({
           <div className="app-muted-box px-3 py-3 text-sm text-slate-600">
             <p>
               <span className="text-slate-500">
-                {isReceita ? "Meta total do mês:" : "Limite total do mês:"}
+                {isReceita ? "Planejado total do mês:" : "Limite total do mês:"}
               </span>{" "}
               <strong>{formatCurrency(previewTotais.limiteTotal)}</strong>
             </p>
@@ -610,7 +632,7 @@ function OrcamentoModal({
               <p className="mt-1 text-xs text-slate-500">
                 Previsto (realizado + comprometido): {formatCurrency(previewTotais.previstoTotal)} (
                 {Math.min((previewTotais.previstoTotal / previewTotais.limiteTotal) * 100, 999).toFixed(0)}
-                % {isReceita ? "da meta" : "do limite"})
+                % {isReceita ? "do planejado" : "do limite"})
               </p>
             )}
           </div>

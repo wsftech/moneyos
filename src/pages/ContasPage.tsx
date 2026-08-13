@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { AtivosManuaisSection } from "../components/AtivosManuaisSection";
 import { ContextoBadge } from "../components/ContextoSelector";
 import { ContaIcone, IconeContaPicker } from "../components/ContaIcone";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -9,7 +10,7 @@ import {
   resolveContexto,
 } from "../components/ContextoFormSelect";
 import { Button } from "../components/ui/Button";
-import { EmptyState, ErrorAlert, LoadingSpinner } from "../components/ui/Feedback";
+import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
 import { Input, Select } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
@@ -92,17 +93,20 @@ export function ContasPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm text-slate-500">Bancos, carteiras e cartões</p>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setModalOpen(true);
-          }}
-        >
-          + Nova conta
-        </Button>
-      </div>
+      <PageHeader
+        title="Contas"
+        subtitle="Bancos, carteiras, cartões, poupança e investimentos"
+        action={
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setModalOpen(true);
+            }}
+          >
+            + Nova conta
+          </Button>
+        }
+      />
 
       {error && (
         <div className="mb-4">
@@ -112,7 +116,7 @@ export function ContasPage() {
       {loading || ctxLoading ? (
         <LoadingSpinner />
       ) : contas.length === 0 ? (
-        <EmptyState message="Nenhuma conta cadastrada." />
+        <EmptyState message="Nenhuma conta cadastrada. Comece pelos bancos ou pela carteira onde o dinheiro fica." />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {contas.map((conta) => {
@@ -210,6 +214,8 @@ export function ContasPage() {
           })}
         </div>
       )}
+
+      <AtivosManuaisSection />
 
       <ContaModal
         open={modalOpen}

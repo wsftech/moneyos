@@ -18,8 +18,10 @@ import {
   createContaPagarReceber,
   deleteContaPagarReceber,
   efetivarContaPagarReceber,
+  getAgingAReceber,
   listContasPagarReceber,
   updateContaPagarReceber,
+  type AgingAReceber,
   type ContaPagarReceberInput,
 } from "../db/contasPagarReceber";
 import { listContatos } from "../db/contatos";
@@ -48,6 +50,8 @@ export function ContasPagarReceberPage() {
   const [efetivarItem, setEfetivarItem] = useState<ContaPagarReceber | null>(null);
   const [editing, setEditing] = useState<ContaPagarReceber | null>(null);
   const [filtroStatus, setFiltroStatus] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState<"" | TipoContaPagarReceber>("");
+  const [aging, setAging] = useState<AgingAReceber | null>(null);
 
   useEffect(() => {
     if (searchParams.get("nova") !== "1") return;
@@ -60,32 +64,35 @@ export function ContasPagarReceberPage() {
     setLoading(true);
     setError(null);
     try {
-      const [i, c, cat, cts] = await Promise.all([
+      const [i, c, cat, cts, agingRes] = await Promise.all([
         listContasPagarReceber({
           contexto,
           status: filtroStatus ? (filtroStatus as ContaPagarReceber["status"]) : undefined,
+          tipo: filtroTipo || undefined,
         }),
         listContas(contexto),
         listCategorias("consolidado"),
         listContatos(contexto),
+        getAgingAReceber(contexto),
       ]);
       setItems(i);
       setContas(c);
       setCategorias(cat);
       setContatos(cts);
+      setAging(agingRes);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [contexto, filtroStatus]);
+  }, [contexto, filtroStatus, filtroTipo]);
 
   useEffect(() => {
     if (!ctxLoading) void carregar();
   }, [carregar, ctxLoading]);
 
   async function handleDelete(id: number) {
-    if (!(await confirm("Excluir este lançamento?"))) return;
+    if (!(await confirm("Excluir este compromisso?"))) return;
     try {
       await deleteContaPagarReceber(id);
       await carregar();
@@ -97,8 +104,8 @@ export function ContasPagarReceberPage() {
   return (
     <div>
       <PageHeader
-        title="Contas a pagar/receber"
-        subtitle="Controle de vencimentos"
+        title="Agenda"
+        subtitle="Compromissos avulsos com data — o que se repete todo mês fica em Lançamentos → Recorrentes"
         action={
           <Button
             onClick={() => {
@@ -106,30 +113,80 @@ export function ContasPagarReceberPage() {
               setModalOpen(true);
             }}
           >
-            + Novo lançamento
+            + Novo compromisso
           </Button>
         }
       />
 
-      <div className="mb-4 max-w-xs">
-        <Select
-          label="Filtrar por status"
-          value={filtroStatus}
-          onChange={(e) => setFiltroStatus(e.target.value)}
-          options={[
-            { value: "", label: "Todos" },
-            { value: "pendente", label: "Pendente" },
-            { value: "atrasado", label: "Atrasado" },
-            { value: "pago", label: "Pago" },
-          ]}
-        />
+      <div className="mb-4 flex flex-wrap gap-4">
+        <div className="max-w-xs flex-1">
+          <Select
+            label="Filtrar por status"
+            value={filtroStatus}
+            onChange={(e) => setFiltroStatus(e.target.value)}
+            options={[
+              { value: "", label: "Todos" },
+              { value: "pendente", label: "Pendente" },
+              { value: "atrasado", label: "Atrasado" },
+              { value: "pago", label: "Pago" },
+            ]}
+          />
+        </div>
+        <div className="max-w-xs flex-1">
+          <Select
+            label="Tipo"
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value as "" | TipoContaPagarReceber)}
+            options={[
+              { value: "", label: "A pagar e a receber" },
+              { value: "pagar", label: "A pagar" },
+              { value: "receber", label: "A receber" },
+            ]}
+          />
+        </div>
       </div>
+
+      {aging && aging.total > 0 && (filtroTipo === "" || filtroTipo === "receber") && (
+        <section className="mb-4 app-card p-4">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Aging — a receber</h2>
+              <p className="text-xs text-slate-500">
+                Distribuição do que ainda não entrou no caixa (útil para cobrança).
+              </p>
+            </div>
+            <p className="text-sm font-semibold text-emerald-700">
+              Total aberto {formatCurrency(aging.total)}
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-5">
+            {aging.buckets.map((b) => (
+              <div
+                key={b.id}
+                className={`rounded-xl border px-3 py-2 ${
+                  b.id === "a_vencer"
+                    ? "border-slate-200 bg-slate-50"
+                    : b.total > 0
+                      ? "border-amber-200 bg-amber-50/60"
+                      : "border-slate-100 bg-white"
+                }`}
+              >
+                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                  {b.label}
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(b.total)}</p>
+                <p className="text-[10px] text-slate-400">{b.quantidade} item(ns)</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {error && <div className="mb-4"><ErrorAlert message={error} /></div>}
       {loading || ctxLoading ? (
         <LoadingSpinner />
       ) : items.length === 0 ? (
-        <EmptyState message="Nenhum lançamento encontrado." />
+        <EmptyState message="Nenhum compromisso encontrado. Agenda é para datas avulsas — o que se repete todo mês fica em Lançamentos → Recorrentes." />
       ) : (
         <div className="overflow-hidden app-card">
           <table className="w-full text-sm">
@@ -396,7 +453,7 @@ function ItemModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={item ? "Editar lançamento" : "Novo lançamento"}>
+    <Modal open={open} onClose={onClose} title={item ? "Editar compromisso" : "Novo compromisso"}>
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
         <Input label="Descrição" value={descricao} onChange={(e) => setDescricao(e.target.value)} required />
@@ -509,13 +566,13 @@ function OrcamentoPreviewBox({
       }`}
     >
       <p className="font-medium">
-        {isReceita ? "Meta de receita" : "Orçamento"} — {labelMes(mes)}
+        {isReceita ? "Receita planejada" : "Orçamento"} — {labelMes(mes)}
       </p>
       {preview.valor_limite != null ? (
         <>
           <p className="mt-1">
             {formatCurrency(preview.total_usado)} de {formatCurrency(preview.valor_limite)} (
-            {preview.percentual.toFixed(0)}% {isReceita ? "da meta" : "utilizado"})
+            {preview.percentual.toFixed(0)}% {isReceita ? "do planejado" : "utilizado"})
           </p>
           <p className="mt-1 text-xs opacity-80">
             Realizado: {formatCurrency(preview.gasto)} · Comprometido:{" "}
@@ -525,18 +582,18 @@ function OrcamentoPreviewBox({
             <p className="mt-1 text-xs opacity-80">
               {isReceita
                 ? preview.disponivel > 0
-                  ? `${formatCurrency(preview.disponivel)} faltando após este lançamento`
-                  : `${formatCurrency(Math.abs(preview.disponivel))} acima da meta`
+                  ? `${formatCurrency(preview.disponivel)} faltando após este compromisso`
+                  : `${formatCurrency(Math.abs(preview.disponivel))} acima do planejado`
                 : preview.disponivel >= 0
-                  ? `${formatCurrency(preview.disponivel)} disponível após este lançamento`
+                  ? `${formatCurrency(preview.disponivel)} disponível após este compromisso`
                   : `${formatCurrency(Math.abs(preview.disponivel))} acima do limite`}
             </p>
           )}
         </>
       ) : (
         <p className="mt-1 text-xs opacity-80">
-          Sem {isReceita ? "meta" : "orçamento"} cadastrada para esta categoria. Comprometido
-          previsto: {formatCurrency(preview.comprometido)} (inclui este lançamento).
+          Sem {isReceita ? "receita planejada" : "orçamento"} cadastrada para esta categoria. Comprometido
+          previsto: {formatCurrency(preview.comprometido)} (inclui este compromisso).
         </p>
       )}
     </div>

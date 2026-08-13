@@ -377,6 +377,8 @@ export interface RegraCategorizacao {
 export interface PatrimonioResumo {
   /** Ativos em contas (exclui cartão — passivo entra em dividas_cartao) */
   saldo_contas: number;
+  /** Imóvel, veículo e outros ativos cadastrados manualmente */
+  ativos_manuais: number;
   /** Dívida total = parceladas + cartão */
   dividas: number;
   dividas_parceladas: number;

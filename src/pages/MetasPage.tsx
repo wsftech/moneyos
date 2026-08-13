@@ -67,7 +67,7 @@ export function MetasPage() {
     <div>
       <PageHeader
         title="Metas"
-        subtitle="Reserva de emergência, objetivos e metas financeiras"
+        subtitle="Reserva de emergência e objetivos de economia — não confundir com receita planejada em Orçamentos"
         action={
           <Button
             onClick={() => {

@@ -1,19 +1,21 @@
 import { getDatabase } from "./connection";
-import { getSaldoContextoAtual } from "./contas";
-import { listFaturasPendentesContexto } from "./faturasCartao";
+import { listContas } from "./contas";
+import { listFaturasCartao, listFaturasPendentesContexto } from "./faturasCartao";
 import {
   sincronizarStatusContasPagarReceber,
 } from "./contasPagarReceber";
 import { sincronizarStatusParcelas as sincronizarFinanciamentos } from "./financiamentos";
 import { sincronizarStatusParcelas as sincronizarEmprestimos } from "./emprestimos";
+import { getPatrimonioResumo } from "./patrimonio";
 import { listTransacoesRecorrentes } from "./transacoesRecorrentes";
 import {
   applyContextoFilter,
   buildContextoFilter,
   withDatabase,
 } from "./utils";
-import type { ContextoVisualizacao, FluxoProjetado12Meses, FluxoProjetadoResumo } from "../types";
+import type { Conta, ContextoVisualizacao, FluxoProjetado12Meses, FluxoProjetadoResumo } from "../types";
 import { intervaloDoMes } from "../utils/dates";
+import { periodoFaturaCartao } from "../utils/faturaCartao";
 import { arredondarMoeda, labelMes } from "../utils/format";
 
 interface EventoFluxo {
@@ -156,6 +158,60 @@ function projetarFaturasCartao(
   return eventos;
 }
 
+/**
+ * Projeta ciclos futuros de cartão sem fatura aberta, usando a média das
+ * últimas faturas com valor — evita subestimar o fluxo de 12 meses.
+ */
+async function projetarCiclosFuturosCartao(
+  contexto: ContextoVisualizacao | undefined,
+  hoje: string,
+  limiteData: string,
+  diasHorizonte: number,
+  faturasPendentes: Awaited<ReturnType<typeof listFaturasPendentesContexto>>,
+): Promise<EventoFluxo[]> {
+  const contas = await listContas(contexto);
+  const cartoes = contas.filter(
+    (c): c is Conta & { dia_fechamento: number; dia_vencimento: number } =>
+      c.tipo === "cartao_credito" && c.dia_fechamento != null && c.dia_vencimento != null,
+  );
+  if (cartoes.length === 0) return [];
+
+  const vencimentosComFatura = new Set(
+    faturasPendentes.map((f) => `${f.conta_id}:${f.vencimento}`),
+  );
+  const eventos: EventoFluxo[] = [];
+  const meses = mesesNoHorizonte(hoje, diasHorizonte);
+
+  for (const cartao of cartoes) {
+    const historico = await listFaturasCartao(cartao.id, 6);
+    const comValor = historico.filter((f) => f.total > 0);
+    if (comValor.length === 0) continue;
+    const estimativa = arredondarMoeda(
+      comValor.reduce((s, f) => s + f.total, 0) / comValor.length,
+    );
+    if (estimativa <= 0) continue;
+
+    for (const f of historico) {
+      vencimentosComFatura.add(`${cartao.id}:${f.vencimento}`);
+    }
+
+    for (const mes of meses) {
+      const { vencimento } = periodoFaturaCartao(
+        mes,
+        cartao.dia_fechamento,
+        cartao.dia_vencimento,
+      );
+      if (vencimento < hoje || vencimento > limiteData) continue;
+      const key = `${cartao.id}:${vencimento}`;
+      if (vencimentosComFatura.has(key)) continue;
+      eventos.push({ data: vencimento, entrada: 0, saida: estimativa });
+      vencimentosComFatura.add(key);
+    }
+  }
+
+  return eventos;
+}
+
 export async function getFluxoProjetado(
   contexto?: ContextoVisualizacao,
   diasHorizonte = 90,
@@ -170,16 +226,25 @@ export async function getFluxoProjetado(
   const limiteData = addDays(hoje, diasHorizonte);
 
   const [saldoAtual, vencimentos, recorrentes, faturas] = await Promise.all([
-    getSaldoContextoAtual(contexto),
+    getPatrimonioResumo(contexto).then((p) => p.caixa_disponivel),
     coletarVencimentosPendentes(contexto, hoje, limiteData),
     listTransacoesRecorrentes(contexto),
     listFaturasPendentesContexto(contexto),
   ]);
 
+  const ciclosFuturos = await projetarCiclosFuturosCartao(
+    contexto,
+    hoje,
+    limiteData,
+    diasHorizonte,
+    faturas,
+  );
+
   const todosEventos = [
     ...vencimentos,
     ...projetarRecorrentes(hoje, limiteData, recorrentes),
     ...projetarFaturasCartao(hoje, limiteData, faturas),
+    ...ciclosFuturos,
   ];
 
   const porDia = new Map<string, { entradas: number; saidas: number }>();

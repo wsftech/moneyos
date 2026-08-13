@@ -11,16 +11,21 @@ import { formatCurrency, formatDate } from "../utils/format";
 import { ContextoBadge } from "../components/ContextoSelector";
 
 type AbaDivida = "todos" | "financiamento" | "emprestimo";
+type SubtipoDivida = "financiamento" | "emprestimo";
 
 type ItemDivida = {
   chave: string;
-  tipo: "financiamento" | "emprestimo";
+  tipo: SubtipoDivida;
   descricao: string;
   contexto: "pessoal" | "empresa";
   valor_restante: number;
   percentual_pago: number;
   proximo_vencimento: string | null;
 };
+
+function labelSubtipo(tipo: SubtipoDivida): string {
+  return tipo === "financiamento" ? "Financiamento" : "Empréstimo";
+}
 
 export function DividasParceladasPage() {
   const { contexto, loading: ctxLoading } = useContexto();
@@ -29,11 +34,12 @@ export function DividasParceladasPage() {
   const [resumo, setResumo] = useState<ItemDivida[]>([]);
   const [loadingResumo, setLoadingResumo] = useState(true);
   const [abrirNovoFinanciamento, setAbrirNovoFinanciamento] = useState(false);
+  const [abrirNovoEmprestimo, setAbrirNovoEmprestimo] = useState(false);
+  const [escolherSubtipo, setEscolherSubtipo] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("nova") !== "1") return;
-    setAba("financiamento");
-    setAbrirNovoFinanciamento(true);
+    setEscolherSubtipo(true);
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
@@ -77,14 +83,41 @@ export function DividasParceladasPage() {
     if (!ctxLoading) void carregarResumo();
   }, [carregarResumo, ctxLoading]);
 
+  function iniciarNova(subtipo: SubtipoDivida) {
+    setEscolherSubtipo(false);
+    setAba(subtipo);
+    if (subtipo === "financiamento") setAbrirNovoFinanciamento(true);
+    else setAbrirNovoEmprestimo(true);
+  }
+
   const totalRestante = resumo.reduce((s, i) => s + i.valor_restante, 0);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Dívidas parceladas"
-        subtitle="Financiamentos e empréstimos em um só lugar"
+        title="Dívidas"
+        subtitle="Parcelas de financiamento ou empréstimo — escolha o tipo ao cadastrar"
+        action={
+          <Button type="button" onClick={() => setEscolherSubtipo((v) => !v)}>
+            + Nova dívida
+          </Button>
+        }
       />
+
+      {escolherSubtipo && (
+        <div className="app-card flex flex-wrap gap-3 p-4">
+          <p className="w-full text-sm text-slate-600">Qual tipo de dívida parcelada?</p>
+          <Button type="button" onClick={() => iniciarNova("financiamento")}>
+            Financiamento
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => iniciarNova("emprestimo")}>
+            Empréstimo
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => setEscolherSubtipo(false)}>
+            Cancelar
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {(
@@ -115,15 +148,23 @@ export function DividasParceladasPage() {
           {loadingResumo || ctxLoading ? (
             <LoadingSpinner />
           ) : resumo.length === 0 ? (
-            <p className="text-sm text-slate-500">Nenhuma dívida parcelada cadastrada.</p>
+            <p className="text-sm text-slate-500">
+              Nenhuma dívida parcelada. Cadastre um financiamento ou empréstimo — ambos aparecem
+              aqui com o saldo que ainda falta pagar.
+            </p>
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {resumo.map((item) => (
-                <div key={item.chave} className="app-card p-4">
+                <button
+                  key={item.chave}
+                  type="button"
+                  className="app-card p-4 text-left transition-colors hover:bg-slate-50"
+                  onClick={() => setAba(item.tipo)}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold text-slate-900">{item.descricao}</p>
-                      <p className="text-xs capitalize text-slate-500">{item.tipo}</p>
+                      <p className="text-xs text-slate-500">{labelSubtipo(item.tipo)}</p>
                     </div>
                     {contexto === "consolidado" && (
                       <ContextoBadge itemContexto={item.contexto} />
@@ -143,7 +184,7 @@ export function DividasParceladasPage() {
                       style={{ width: `${item.percentual_pago}%` }}
                     />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -158,7 +199,14 @@ export function DividasParceladasPage() {
           onAbrirNovoConsumido={() => setAbrirNovoFinanciamento(false)}
         />
       )}
-      {aba === "emprestimo" && <EmprestimosPage embedded onChanged={carregarResumo} />}
+      {aba === "emprestimo" && (
+        <EmprestimosPage
+          embedded
+          onChanged={carregarResumo}
+          abrirNovo={abrirNovoEmprestimo}
+          onAbrirNovoConsumido={() => setAbrirNovoEmprestimo(false)}
+        />
+      )}
     </div>
   );
 }

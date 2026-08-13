@@ -40,9 +40,13 @@ type PagamentoSelecionado = { valor: number; data: string };
 export function EmprestimosPage({
   embedded = false,
   onChanged,
+  abrirNovo = false,
+  onAbrirNovoConsumido,
 }: {
   embedded?: boolean;
   onChanged?: () => void;
+  abrirNovo?: boolean;
+  onAbrirNovoConsumido?: () => void;
 } = {}) {
   const { contexto, loading: ctxLoading } = useContexto();
   const confirm = useConfirm();
@@ -54,6 +58,13 @@ export function EmprestimosPage({
   const [editing, setEditing] = useState<EmprestimoResumo | null>(null);
   const [pagando, setPagando] = useState<EmprestimoResumo | null>(null);
   const [pagamentoHistorico, setPagamentoHistorico] = useState(false);
+
+  useEffect(() => {
+    if (!abrirNovo) return;
+    setEditing(null);
+    setModalCadastro(true);
+    onAbrirNovoConsumido?.();
+  }, [abrirNovo, onAbrirNovoConsumido]);
 
   const carregar = useCallback(async () => {
     setLoading(true);

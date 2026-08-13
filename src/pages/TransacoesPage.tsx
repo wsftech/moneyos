@@ -19,6 +19,10 @@ import { useContexto } from "../contexts/ContextoContext";
 import { filtrarCategoriasParaLancamento, listCategorias } from "../db/categorias";
 import { listContas } from "../db/contas";
 import {
+  getProgressoOrcamentoCategoria,
+  type ProgressoOrcamentoCategoria,
+} from "../db/orcamentos";
+import {
   createTransacaoRecorrente,
   deleteTransacaoRecorrente,
   listTransacoesRecorrentes,
@@ -45,7 +49,7 @@ import {
 } from "../db/transacoes";
 import { getErrorMessage } from "../db/utils";
 import type { Contexto, Tag, Transacao, TransacaoRecorrente } from "../types";
-import { intervaloDoMes, intervaloMesAtual } from "../utils/dates";
+import { intervaloDoMes, intervaloMesAtual, todayIsoDate } from "../utils/dates";
 import { formatCurrency, formatDate, labelMes, mesAtual } from "../utils/format";
 import {
   agruparTransacoesParaExibicao,
@@ -185,8 +189,8 @@ export function TransacoesPage() {
   return (
     <div>
       <PageHeader
-        title="Transações"
-        subtitle="Lançamentos financeiros e transferências"
+        title="Lançamentos"
+        subtitle="O que já aconteceu. O que se repete todo mês fica na aba Recorrentes (também no menu A vencer)."
         action={
           aba === "lancamentos" ? (
             <div className="flex gap-2">
@@ -203,7 +207,7 @@ export function TransacoesPage() {
                   setModalOpen(true);
                 }}
               >
-                + Nova transação
+                + Novo lançamento
               </Button>
             </div>
           ) : undefined
@@ -542,7 +546,7 @@ function RecorrentesPanel({
       {loading || ctxLoading ? (
         <LoadingSpinner />
       ) : lista.length === 0 ? (
-        <EmptyState message="Nenhum lançamento recorrente cadastrado." />
+        <EmptyState message="Nenhum recorrente. Use Recorrentes para o que se repete todo mês (aluguel, assinatura); Agenda é só para datas avulsas." />
       ) : (
         <div className="overflow-x-auto app-card">
           <table className="w-full min-w-[640px] text-sm">
@@ -936,7 +940,7 @@ function TransacaoModal({
   const [formContexto, setFormContexto] = useState<Contexto>(defaultFormContexto(contexto));
   const [descricao, setDescricao] = useState("");
   const [valor, setValor] = useState("");
-  const [data, setData] = useState(new Date().toISOString().slice(0, 10));
+  const [data, setData] = useState(todayIsoDate());
   const [tipo, setTipo] = useState<TransacaoInput["tipo"]>("despesa");
   const [contaId, setContaId] = useState("");
   const [contaOrigemId, setContaOrigemId] = useState("");
@@ -953,6 +957,8 @@ function TransacaoModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [isVinculada, setIsVinculada] = useState(false);
   const [todasContas, setTodasContas] = useState(contas);
+  const [maisOpcoes, setMaisOpcoes] = useState(false);
+  const [dicaOrcamento, setDicaOrcamento] = useState<ProgressoOrcamentoCategoria | null>(null);
 
   useEffect(() => {
     if (contexto === "consolidado") {
@@ -973,6 +979,11 @@ function TransacaoModal({
         setPendingAnexoSource(null);
         const tags = await getTagsTransacao(transacao.id);
         setTagIds(tags.map((tag) => tag.id));
+        setMaisOpcoes(
+          Boolean(transacao.observacoes) ||
+            Boolean(transacao.anexo_path) ||
+            tags.length > 0,
+        );
 
         const par = await getParVinculado(transacao);
         const vinculada = !!par || transacao.transacao_vinculada_id !== null;
@@ -1026,7 +1037,7 @@ function TransacaoModal({
         setFormContexto(defaultFormContexto(contexto));
         setDescricao("");
         setValor("");
-        setData(new Date().toISOString().slice(0, 10));
+        setData(todayIsoDate());
         setTipo(tipoInicial ?? "despesa");
         setContaId(contas[0] ? String(contas[0].id) : "");
         setContaOrigemId(todasContas[0] ? String(todasContas[0].id) : "");
@@ -1039,6 +1050,7 @@ function TransacaoModal({
         setPendingAnexoSource(null);
         setTagIds([]);
         setParcelas("1");
+        setMaisOpcoes(false);
       }
     }
     if (open) void loadForm();
@@ -1058,6 +1070,31 @@ function TransacaoModal({
   const categoriasDestino = destinoConta
     ? filtrarCategoriasParaLancamento(categorias, destinoConta.contexto, "receita")
     : [];
+
+  useEffect(() => {
+    if (!open || isTransferencia || !categoriaId) {
+      setDicaOrcamento(null);
+      return;
+    }
+    const valorNum = parseFloat(valor);
+    const extra = !transacao && !Number.isNaN(valorNum) && valorNum > 0 ? valorNum : 0;
+    let cancelado = false;
+    void getProgressoOrcamentoCategoria(
+      Number(categoriaId),
+      resolveContexto(contexto, formContexto),
+      data.slice(0, 7),
+      { valorExtra: extra },
+    )
+      .then((p) => {
+        if (!cancelado) setDicaOrcamento(p.valor_limite != null ? p : null);
+      })
+      .catch(() => {
+        if (!cancelado) setDicaOrcamento(null);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [open, isTransferencia, categoriaId, valor, data, contexto, formContexto, transacao]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1192,8 +1229,8 @@ function TransacaoModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={transacao ? "Editar transação" : "Nova transação"}
-      wide
+      title={transacao ? "Editar lançamento" : "Novo lançamento"}
+      wide={isTransferencia || maisOpcoes || crossContext}
     >
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
@@ -1203,15 +1240,36 @@ function TransacaoModal({
             aplicadas ao par de lançamentos.
           </p>
         )}
+
+        {!isVinculada && (
+          <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            {TIPO_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setTipo(opt.value as TransacaoInput["tipo"])}
+                className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  tipo === opt.value
+                    ? "bg-white text-slate-900"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <Input
-          label="Descrição"
+          label="O quê"
           value={descricao}
           onChange={(e) => setDescricao(e.target.value)}
           required
+          placeholder="Ex.: supermercado, salário, aluguel"
         />
         <div className="grid gap-4 md:grid-cols-2">
           <Input
-            label="Valor"
+            label="Quanto"
             type="number"
             step="0.01"
             min="0"
@@ -1220,7 +1278,7 @@ function TransacaoModal({
             required
           />
           <Input
-            label="Data"
+            label="Quando"
             type="date"
             value={data}
             onChange={(e) => setData(e.target.value)}
@@ -1228,25 +1286,15 @@ function TransacaoModal({
           />
         </div>
 
-        {!isVinculada && (
-          <div className="grid gap-4 md:grid-cols-2">
-            <Select
-              label="Tipo"
-              value={tipo}
-              onChange={(e) => setTipo(e.target.value as TransacaoInput["tipo"])}
-              options={TIPO_OPTIONS}
-            />
-            {contexto === "consolidado" && !isTransferencia && (
-              <ContextoFormSelect value={formContexto} onChange={setFormContexto} />
-            )}
-          </div>
+        {contexto === "consolidado" && !isTransferencia && !isVinculada && (
+          <ContextoFormSelect value={formContexto} onChange={setFormContexto} />
         )}
 
         {isTransferencia ? (
           <>
             <div className="grid gap-4 md:grid-cols-2">
               <Select
-                label="Conta origem (saída)"
+                label="Sai de"
                 value={contaOrigemId}
                 onChange={(e) => setContaOrigemId(e.target.value)}
                 disabled={isVinculada}
@@ -1256,7 +1304,7 @@ function TransacaoModal({
                 }))}
               />
               <Select
-                label="Conta destino (entrada)"
+                label="Entra em"
                 value={contaDestinoId}
                 onChange={(e) => setContaDestinoId(e.target.value)}
                 disabled={isVinculada}
@@ -1268,15 +1316,16 @@ function TransacaoModal({
             </div>
             {crossContext && (
               <>
-                <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
-                  Transferência entre contextos: saída (
-                  <ContextoBadge itemContexto={origemConta!.contexto} />) e entrada (
-                  <ContextoBadge itemContexto={destinoConta!.contexto} />). Use categorias como{" "}
-                  <strong>Pró-labore</strong> para classificar no dashboard.
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  Isso é uma <strong>retirada/aporte entre contextos</strong>: sai de{" "}
+                  <ContextoBadge itemContexto={origemConta!.contexto} /> e entra em{" "}
+                  <ContextoBadge itemContexto={destinoConta!.contexto} />. No resultado do mês
+                  aparece como despesa na origem e receita no destino — não é transferência
+                  interna de um mesmo caixa.
                 </p>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Select
-                    label={`Categoria na origem (despesa · ${origemConta!.contexto})`}
+                    label={`Categoria na origem (${origemConta!.contexto}) — ex.: pró-labore / retirada`}
                     value={categoriaOrigemId}
                     onChange={(e) => setCategoriaOrigemId(e.target.value)}
                     options={[
@@ -1285,7 +1334,7 @@ function TransacaoModal({
                     ]}
                   />
                   <Select
-                    label={`Categoria no destino (receita · ${destinoConta!.contexto})`}
+                    label={`Categoria no destino (${destinoConta!.contexto}) — ex.: aporte`}
                     value={categoriaDestinoId}
                     onChange={(e) => setCategoriaDestinoId(e.target.value)}
                     options={[
@@ -1300,7 +1349,7 @@ function TransacaoModal({
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             <Select
-              label="Conta"
+              label="De onde"
               value={contaId}
               onChange={(e) => setContaId(e.target.value)}
               options={contasFiltradas.map((c) => ({ value: String(c.id), label: c.nome }))}
@@ -1317,10 +1366,26 @@ function TransacaoModal({
           </div>
         )}
 
+        {dicaOrcamento && dicaOrcamento.disponivel != null && (
+          <p
+            className={`text-xs ${
+              dicaOrcamento.disponivel < 0 ? "text-rose-700" : "text-slate-500"
+            }`}
+          >
+            {dicaOrcamento.tipo_categoria === "receita"
+              ? dicaOrcamento.disponivel > 0
+                ? `Faltam ${formatCurrency(dicaOrcamento.disponivel)} para a meta desta categoria.`
+                : "Meta de receita desta categoria atingida neste mês."
+              : dicaOrcamento.disponivel >= 0
+                ? `Neste orçamento ainda cabem ${formatCurrency(dicaOrcamento.disponivel)}.`
+                : `Este lançamento deixa o orçamento ${formatCurrency(Math.abs(dicaOrcamento.disponivel))} acima do limite.`}
+          </p>
+        )}
+
         {mostrarParcelas && (
           <div className="space-y-2">
             <Input
-              label="Parcelas no cart↔o"
+              label="Parcelas no cartão"
               type="number"
               min="1"
               max="48"
@@ -1330,7 +1395,7 @@ function TransacaoModal({
             />
             {Number(parcelas) >= 2 && (
               <p className="text-xs text-slate-500">
-                O valor ser↔ dividido em {Math.floor(Number(parcelas))} lan↔amentos, um por
+                O valor será dividido em {Math.floor(Number(parcelas))} lançamentos, um por
                 ciclo de fatura a partir da data informada.
               </p>
             )}
@@ -1343,24 +1408,32 @@ function TransacaoModal({
           </p>
         )}
 
-        <Textarea
-          label="Observações"
-          value={observacoes}
-          onChange={(e) => setObservacoes(e.target.value)}
-        />
+        <button
+          type="button"
+          className="text-xs font-medium text-teal-700 hover:underline"
+          onClick={() => setMaisOpcoes((v) => !v)}
+        >
+          {maisOpcoes ? "Ocultar opções" : "Mais opções"}
+        </button>
 
-        {!isTransferencia && (
-          <TagSelect value={tagIds} onChange={setTagIds} />
-        )}
-
-        {!isTransferencia && (
-          <TransacaoAnexoField
-            transacaoId={transacao?.id ?? null}
-            anexoPath={anexoPath}
-            onAnexoChange={setAnexoPath}
-            pendingSource={pendingAnexoSource}
-            onPendingSourceChange={setPendingAnexoSource}
-          />
+        {maisOpcoes && (
+          <div className="space-y-4 border-t border-slate-100 pt-3">
+            <Textarea
+              label="Observações"
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+            />
+            {!isTransferencia && <TagSelect value={tagIds} onChange={setTagIds} />}
+            {!isTransferencia && (
+              <TransacaoAnexoField
+                transacaoId={transacao?.id ?? null}
+                anexoPath={anexoPath}
+                onAnexoChange={setAnexoPath}
+                pendingSource={pendingAnexoSource}
+                onPendingSourceChange={setPendingAnexoSource}
+              />
+            )}
+          </div>
         )}
 
         <div className="flex justify-end gap-2 pt-2">
