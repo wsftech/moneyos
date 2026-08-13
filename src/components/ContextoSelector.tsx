@@ -8,11 +8,17 @@ const OPCOES: { valor: ContextoVisualizacao; label: string; cor: string }[] = [
 ];
 
 export function ContextoSelector() {
-  const { contexto, setContexto, loading } = useContexto();
+  const { contexto, setContexto, loading, opcoesVisualizacao, escopoUnico } = useContexto();
+
+  if (escopoUnico || opcoesVisualizacao.length <= 1) {
+    return null;
+  }
+
+  const opcoes = OPCOES.filter((o) => opcoesVisualizacao.includes(o.valor));
 
   return (
     <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
-      {OPCOES.map((opcao) => (
+      {opcoes.map((opcao) => (
         <button
           key={opcao.valor}
           type="button"
@@ -33,6 +39,9 @@ export function ContextoSelector() {
 }
 
 export function ContextoBadge({ itemContexto }: { itemContexto: "pessoal" | "empresa" }) {
+  const { escopoUnico } = useContexto();
+  if (escopoUnico) return null;
+
   const isPessoal = itemContexto === "pessoal";
   return (
     <span

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../components/ui/Feedback";
 import { COPYRIGHT_COM_CNPJ } from "../constants/empresa";
+import { useContexto } from "../contexts/ContextoContext";
 
 const STORAGE_KEY = "moneyos_aprender_passos";
 const STORAGE_KEY_EMPRESA = "moneyos_aprender_passos_empresa";
@@ -241,6 +242,8 @@ function salvarPassosEmpresa(ids: Set<PassoEmpresaId>) {
 }
 
 export function AprenderPage() {
+  const { escopo } = useContexto();
+  const mostrarChecklistEmpresa = escopo !== "pessoal";
   const [feitos, setFeitos] = useState<Set<PassoId>>(() => lerPassosConcluidos());
   const [feitosEmpresa, setFeitosEmpresa] = useState<Set<PassoEmpresaId>>(() => lerPassosEmpresa());
   const [faqAberto, setFaqAberto] = useState<number | null>(0);
@@ -350,6 +353,7 @@ export function AprenderPage() {
         </ol>
       </section>
 
+      {mostrarChecklistEmpresa && (
       <section className="app-card p-5">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -413,6 +417,7 @@ export function AprenderPage() {
           })}
         </ol>
       </section>
+      )}
 
       <section className="app-card p-5">
         <h2 className="font-semibold text-slate-900">O que é cada coisa</h2>

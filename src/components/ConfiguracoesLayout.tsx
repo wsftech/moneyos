@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { PerfilForm } from "./AppBrand";
+import { EscopoFinanceiroForm } from "./EscopoFinanceiroForm";
 
 const TABS = [
   { to: "/configuracoes/perfil", label: "Perfil" },
@@ -16,7 +17,7 @@ export function ConfiguracoesLayout() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Configurações</h1>
-        <p className="mt-1 text-sm text-slate-500">Perfil, tags, regras e preferências do sistema</p>
+        <p className="mt-1 text-sm text-slate-500">Perfil, escopo financeiro, tags e preferências</p>
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
@@ -44,9 +45,14 @@ export function ConfiguracoesLayout() {
 
 export function ConfiguracoesPerfilPage() {
   return (
-    <section className="app-card p-5">
-      <h2 className="mb-4 font-semibold text-slate-900">Perfil</h2>
-      <PerfilForm />
-    </section>
+    <div className="space-y-4">
+      <section className="app-card p-5">
+        <h2 className="mb-4 font-semibold text-slate-900">Perfil</h2>
+        <PerfilForm />
+      </section>
+      <section className="app-card p-5">
+        <EscopoFinanceiroForm />
+      </section>
+    </div>
   );
 }

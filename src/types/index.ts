@@ -1,6 +1,8 @@
 export type Contexto = "pessoal" | "empresa";
 export type ContextoVisualizacao = Contexto | "consolidado";
 export type ContextoCategoria = Contexto | "ambos";
+/** Quais universos o usuário quer gerenciar no app. */
+export type EscopoFinanceiro = "pessoal" | "empresa" | "ambos";
 
 export type TipoConta =
   | "banco"
