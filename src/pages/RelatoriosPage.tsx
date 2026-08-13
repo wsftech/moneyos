@@ -426,8 +426,8 @@ export function RelatoriosPage() {
           </h2>
           <p className="mb-4 text-xs text-slate-500">
             Aproximação prática — não substitui regime de competência contábil. Soma o que
-            ainda está em aberto no mês (agenda, parcelas, faturas, recorrentes não gerados)
-            além do que já foi efetivado.
+            ainda está em aberto até o fim do mês (agenda, parcelas, faturas, recorrentes não
+            gerados, inclusive atrasados) além do que já foi efetivado.
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
             <IndicadorCard

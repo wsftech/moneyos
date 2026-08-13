@@ -7,6 +7,7 @@ import { getResumoMensal } from "./transacoes";
 import {
   listTransacoesRecorrentes,
   recorrentePendenteNoMes,
+  sincronizarTransacoesRecorrentes,
 } from "./transacoesRecorrentes";
 import {
   applyContextoFilter,
@@ -14,6 +15,7 @@ import {
   withDatabase,
 } from "./utils";
 import type { ContextoVisualizacao } from "../types";
+import { intervaloDoMes } from "../utils/dates";
 import { arredondarMoeda } from "../utils/format";
 
 export interface DetalheEntradasMes {
@@ -61,7 +63,11 @@ async function sumQuery(
   });
 }
 
-async function getAbertosNoMes(
+/**
+ * Compromissos em aberto com vencimento até o fim do mês.
+ * Inclui atrasados de meses anteriores (ainda saem do caixa) e ignora o que só vence depois.
+ */
+async function getAbertosAteFimDoMes(
   mes: string,
   contexto?: ContextoVisualizacao,
 ): Promise<{
@@ -72,14 +78,14 @@ async function getAbertosNoMes(
 }> {
   const filterConta = buildContextoFilter(contexto);
   const filterContrato = buildContextoFilter(contexto, "f.contexto");
-  const likeMes = `${mes}%`;
+  const { fim } = intervaloDoMes(mes);
 
   const { query: qPagar, params: pPagar } = applyContextoFilter(
     `SELECT COALESCE(SUM(valor), 0) AS total
      FROM contas_a_pagar_receber
      WHERE status IN ('pendente', 'atrasado')
        AND tipo = 'pagar'
-       AND vencimento LIKE $1${filterConta.clause}`,
+       AND vencimento <= $1${filterConta.clause}`,
     filterConta,
     2,
   );
@@ -89,7 +95,7 @@ async function getAbertosNoMes(
      FROM contas_a_pagar_receber
      WHERE status IN ('pendente', 'atrasado')
        AND tipo = 'receber'
-       AND vencimento LIKE $1${filterConta.clause}`,
+       AND vencimento <= $1${filterConta.clause}`,
     filterConta,
     2,
   );
@@ -99,7 +105,7 @@ async function getAbertosNoMes(
      FROM financiamento_parcelas fp
      JOIN financiamentos f ON f.id = fp.financiamento_id
      WHERE f.ativo = 1 AND fp.status IN ('pendente', 'atrasada')
-       AND fp.vencimento LIKE $1${filterContrato.clause}`,
+       AND fp.vencimento <= $1${filterContrato.clause}`,
     filterContrato,
     2,
   );
@@ -109,16 +115,16 @@ async function getAbertosNoMes(
      FROM emprestimo_parcelas fp
      JOIN emprestimos f ON f.id = fp.emprestimo_id
      WHERE f.ativo = 1 AND fp.status IN ('pendente', 'atrasada')
-       AND fp.vencimento LIKE $1${filterContrato.clause}`,
+       AND fp.vencimento <= $1${filterContrato.clause}`,
     filterContrato,
     2,
   );
 
   const [contas_pagar, contas_receber, financiamentos, emprestimos] = await Promise.all([
-    sumQuery(qPagar, [likeMes, ...pPagar]),
-    sumQuery(qReceber, [likeMes, ...pReceber]),
-    sumQuery(qFin, [likeMes, ...pFin]),
-    sumQuery(qEmp, [likeMes, ...pEmp]),
+    sumQuery(qPagar, [fim, ...pPagar]),
+    sumQuery(qReceber, [fim, ...pReceber]),
+    sumQuery(qFin, [fim, ...pFin]),
+    sumQuery(qEmp, [fim, ...pEmp]),
   ]);
 
   return { contas_pagar, contas_receber, financiamentos, emprestimos };
@@ -152,23 +158,195 @@ async function getRecorrentesPendentesNoMes(
   return { entradas, saidas };
 }
 
-async function getFaturasPendentesNoMes(
+async function getFaturasPendentesAteFimDoMes(
   mes: string,
   contexto?: ContextoVisualizacao,
 ): Promise<number> {
+  const { fim } = intervaloDoMes(mes);
   const faturas = await listFaturasPendentesContexto(contexto);
   let total = 0;
   for (const f of faturas) {
-    if (!f.vencimento.startsWith(mes)) continue;
+    if (f.vencimento > fim) continue;
     const pendente = Number(f.total) - Number(f.valor_pago ?? 0);
     if (pendente > 0) total += pendente;
   }
   return total;
 }
 
+export interface ItemCompromissoSaida {
+  origem: "agenda" | "divida" | "fatura" | "recorrente";
+  descricao: string;
+  detalhe: string;
+  valor: number;
+  vencimento: string | null;
+  rota: string;
+}
+
+/**
+ * Itens que formam o “ainda a pagar” do fechamento — para auditoria no Início.
+ */
+export async function listItensCompromissosSaidaAteFimDoMes(
+  mes: string,
+  contexto?: ContextoVisualizacao,
+): Promise<ItemCompromissoSaida[]> {
+  const filterConta = buildContextoFilter(contexto);
+  const filterContrato = buildContextoFilter(contexto, "f.contexto");
+  const { fim } = intervaloDoMes(mes);
+
+  const itens = await withDatabase(async () => {
+    const db = await getDatabase();
+
+    const { query: qAgenda, params: pAgenda } = applyContextoFilter(
+      `SELECT id, descricao, valor, vencimento
+       FROM contas_a_pagar_receber
+       WHERE status IN ('pendente', 'atrasado')
+         AND tipo = 'pagar'
+         AND vencimento <= $1${filterConta.clause}
+       ORDER BY vencimento ASC`,
+      filterConta,
+      2,
+    );
+
+    const { query: qFin, params: pFin } = applyContextoFilter(
+      `SELECT fp.id AS parcela_id, f.id AS contrato_id, f.descricao, fp.valor_previsto AS valor,
+              fp.vencimento, fp.numero_parcela, f.total_parcelas
+       FROM financiamento_parcelas fp
+       JOIN financiamentos f ON f.id = fp.financiamento_id
+       WHERE f.ativo = 1 AND fp.status IN ('pendente', 'atrasada')
+         AND fp.vencimento <= $1${filterContrato.clause}
+       ORDER BY fp.vencimento ASC`,
+      filterContrato,
+      2,
+    );
+
+    const { query: qEmp, params: pEmp } = applyContextoFilter(
+      `SELECT fp.id AS parcela_id, f.id AS contrato_id, f.descricao, fp.valor_previsto AS valor,
+              fp.vencimento, fp.numero_parcela, f.total_parcelas
+       FROM emprestimo_parcelas fp
+       JOIN emprestimos f ON f.id = fp.emprestimo_id
+       WHERE f.ativo = 1 AND fp.status IN ('pendente', 'atrasada')
+         AND fp.vencimento <= $1${filterContrato.clause}
+       ORDER BY fp.vencimento ASC`,
+      filterContrato,
+      2,
+    );
+
+    const [agenda, fin, emp] = await Promise.all([
+      db.select<{ id: number; descricao: string; valor: number; vencimento: string }[]>(
+        qAgenda,
+        [fim, ...pAgenda],
+      ),
+      db.select<
+        {
+          parcela_id: number;
+          contrato_id: number;
+          descricao: string;
+          valor: number;
+          vencimento: string;
+          numero_parcela: number;
+          total_parcelas: number;
+        }[]
+      >(qFin, [fim, ...pFin]),
+      db.select<
+        {
+          parcela_id: number;
+          contrato_id: number;
+          descricao: string;
+          valor: number;
+          vencimento: string;
+          numero_parcela: number;
+          total_parcelas: number;
+        }[]
+      >(qEmp, [fim, ...pEmp]),
+    ]);
+
+    const out: ItemCompromissoSaida[] = [];
+
+    for (const row of agenda) {
+      out.push({
+        origem: "agenda",
+        descricao: row.descricao,
+        detalhe: "Agenda",
+        valor: Number(row.valor) || 0,
+        vencimento: row.vencimento,
+        rota: "/contas-pagar-receber",
+      });
+    }
+
+    for (const row of fin) {
+      out.push({
+        origem: "divida",
+        descricao: row.descricao,
+        detalhe: `Financiamento · parcela ${row.numero_parcela}/${row.total_parcelas}`,
+        valor: Number(row.valor) || 0,
+        vencimento: row.vencimento,
+        rota: "/dividas-parceladas",
+      });
+    }
+
+    for (const row of emp) {
+      out.push({
+        origem: "divida",
+        descricao: row.descricao,
+        detalhe: `Empréstimo · parcela ${row.numero_parcela}/${row.total_parcelas}`,
+        valor: Number(row.valor) || 0,
+        vencimento: row.vencimento,
+        rota: "/dividas-parceladas",
+      });
+    }
+
+    return out;
+  });
+
+  const faturas = await listFaturasPendentesContexto(contexto);
+  for (const f of faturas) {
+    if (f.vencimento > fim) continue;
+    const pendente = Number(f.total) - Number(f.valor_pago ?? 0);
+    if (pendente <= 0) continue;
+    itens.push({
+      origem: "fatura",
+      descricao: f.conta_nome ? `Fatura ${f.conta_nome}` : "Fatura de cartão",
+      detalhe: "Cartão de crédito",
+      valor: pendente,
+      vencimento: f.vencimento,
+      rota: `/faturas/${f.conta_id}`,
+    });
+  }
+
+  const recorrentes = await listTransacoesRecorrentes(contexto);
+  const gerados = await withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<{ recorrente_id: number }[]>(
+      `SELECT recorrente_id FROM transacao_recorrente_lancamentos
+       WHERE mes_referencia = $1`,
+      [mes],
+    );
+    return new Set(rows.map((r) => r.recorrente_id));
+  });
+
+  for (const rec of recorrentes.filter((r) => r.ativo && r.tipo === "despesa")) {
+    if (!recorrentePendenteNoMes(rec, mes, gerados.has(rec.id))) continue;
+    const dia = String(rec.dia_mes).padStart(2, "0");
+    itens.push({
+      origem: "recorrente",
+      descricao: rec.descricao,
+      detalhe: `Recorrente · todo dia ${rec.dia_mes}`,
+      valor: rec.valor,
+      vencimento: `${mes}-${dia}`,
+      rota: "/transacoes?aba=recorrentes",
+    });
+  }
+
+  return itens.sort((a, b) => {
+    const va = a.vencimento ?? "";
+    const vb = b.vencimento ?? "";
+    return va.localeCompare(vb) || a.descricao.localeCompare(b.descricao);
+  });
+}
+
 /**
  * Visão unificada do mês: realizado (lançamentos efetivados) +
- * compromissos em aberto (contas, parcelas, faturas, recorrentes ainda não gerados).
+ * compromissos em aberto até o fim do mês (agenda, parcelas, faturas, recorrentes).
  */
 export async function getResumoMensalEntradasSaidas(
   mes: string,
@@ -180,14 +358,16 @@ export async function getResumoMensalEntradasSaidas(
       sincronizarFinanciamentos(),
       sincronizarEmprestimos(),
       sincronizarStatusContasPagarReceber(),
+      // Recorrentes já vencidos viram lançamento e saem do "em aberto".
+      sincronizarTransacoesRecorrentes(mes, contexto),
     ]);
   }
 
   const [realizado, abertos, recorrentes, faturas] = await Promise.all([
     getResumoMensal(mes, contexto),
-    getAbertosNoMes(mes, contexto),
+    getAbertosAteFimDoMes(mes, contexto),
     getRecorrentesPendentesNoMes(mes, contexto),
-    getFaturasPendentesNoMes(mes, contexto),
+    getFaturasPendentesAteFimDoMes(mes, contexto),
   ]);
 
   const detalhe_entradas: DetalheEntradasMes = {
@@ -250,10 +430,12 @@ export async function getComparativoMensalEntradasSaidas(
   meses: string[],
   contexto?: ContextoVisualizacao,
 ): Promise<ComparativoMensalEntradasSaidas[]> {
+  const mesSync = meses[0];
   await Promise.all([
     sincronizarFinanciamentos(),
     sincronizarEmprestimos(),
     sincronizarStatusContasPagarReceber(),
+    mesSync ? sincronizarTransacoesRecorrentes(mesSync, contexto) : Promise.resolve(0),
   ]);
 
   const resultados: ComparativoMensalEntradasSaidas[] = [];

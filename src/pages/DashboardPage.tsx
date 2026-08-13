@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ContextoBadge } from "../components/ContextoSelector";
+import { HeroFechamento } from "../components/HeroFechamento";
 import { ErrorAlert, LoadingSpinner } from "../components/ui/Feedback";
 import { Input } from "../components/ui/FormFields";
 import { useContexto } from "../contexts/ContextoContext";
@@ -15,6 +16,8 @@ import {
 } from "../db/proximosVencimentos";
 import {
   getResumoMensalEntradasSaidas,
+  listItensCompromissosSaidaAteFimDoMes,
+  type ItemCompromissoSaida,
   type ResumoMensalEntradasSaidas,
 } from "../db/resumoMensalUnificado";
 import { getGastoPorCategoria, type GastoPorCategoriaResumo } from "../db/transacoes";
@@ -74,6 +77,7 @@ export function DashboardPage() {
   const [detalheAberto, setDetalheAberto] = useState(false);
 
   const [resumoMes, setResumoMes] = useState<ResumoMensalEntradasSaidas | null>(null);
+  const [compromissosItens, setCompromissosItens] = useState<ItemCompromissoSaida[]>([]);
   const [gastosMes, setGastosMes] = useState<CatGasto[]>([]);
   const [acoes, setAcoes] = useState<ProximoVencimentoUnificado[]>([]);
   const [patrimonio, setPatrimonio] = useState<PatrimonioResumo | null>(null);
@@ -87,8 +91,9 @@ export function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [resumoU, gastosM, todasCat, acoesAgora, pat, al, met] = await Promise.all([
+      const [resumoU, itensComp, gastosM, todasCat, acoesAgora, pat, al, met] = await Promise.all([
         getResumoMensalEntradasSaidas(mes, contexto),
+        listItensCompromissosSaidaAteFimDoMes(mes, contexto),
         getGastoPorCategoria(mes, contexto),
         listCategorias("consolidado"),
         listAcoesAgora(contexto, 7),
@@ -98,6 +103,7 @@ export function DashboardPage() {
       ]);
 
       setResumoMes(resumoU);
+      setCompromissosItens(itensComp);
       setGastosMes(mapGastosCategoria(gastosM, todasCat));
       setAcoes(acoesAgora);
       setPatrimonio(pat);
@@ -129,7 +135,23 @@ export function DashboardPage() {
     const saidasRealizadas = resumoMes.realizado_saidas;
     const reservaMeses =
       saidasRealizadas > 0 ? arredondarMoeda(caixa / saidasRealizadas) : null;
-    return { aindaPagar, aindaReceber, caixa, depoisDePagar, depoisDeReceber, reservaMeses };
+    const detalhePagar = {
+      agenda: resumoMes.detalhe_saidas.contas_pagar,
+      dividas: arredondarMoeda(
+        resumoMes.detalhe_saidas.financiamentos + resumoMes.detalhe_saidas.emprestimos,
+      ),
+      faturas: resumoMes.detalhe_saidas.faturas,
+      recorrentes: resumoMes.detalhe_saidas.recorrentes,
+    };
+    return {
+      aindaPagar,
+      aindaReceber,
+      caixa,
+      depoisDePagar,
+      depoisDeReceber,
+      reservaMeses,
+      detalhePagar,
+    };
   }, [resumoMes, patrimonio]);
 
   if (loading || ctxLoading) return <LoadingSpinner />;
@@ -178,6 +200,7 @@ export function DashboardPage() {
           mesCorrente={mesCorrente}
           mesLabel={labelMes(mes)}
           fechamento={fechamento}
+          compromissosItens={compromissosItens}
           contexto={contexto}
           resultadoMes={resultado}
         />
@@ -483,120 +506,6 @@ export function DashboardPage() {
         .
       </p>
     </div>
-  );
-}
-
-function HeroFechamento({
-  mesCorrente,
-  mesLabel,
-  fechamento,
-  contexto,
-  resultadoMes,
-}: {
-  mesCorrente: boolean;
-  mesLabel: string;
-  fechamento: {
-    aindaPagar: number;
-    aindaReceber: number;
-    caixa: number;
-    depoisDePagar: number;
-    depoisDeReceber: number;
-    reservaMeses: number | null;
-  };
-  contexto: string;
-  resultadoMes: number;
-}) {
-  if (!mesCorrente) {
-    return (
-      <section className="app-card p-5">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Visão de {mesLabel}
-        </p>
-        <p className="mt-2 text-xl font-bold text-slate-900">
-          {resultadoMes >= 0 ? "Mês positivo" : "Mês negativo"}:{" "}
-          {resultadoMes >= 0 ? "" : "−"}
-          {formatCurrency(Math.abs(resultadoMes))}
-        </p>
-        <p className="mt-1 text-sm text-slate-500">
-          Use o seletor “Já entrou / saiu” ou “Incluindo o que ainda vence” no bloco abaixo.
-        </p>
-      </section>
-    );
-  }
-
-  const fecha = fechamento.depoisDePagar >= 0;
-  const fechaSeReceber =
-    contexto === "empresa" &&
-    !fecha &&
-    fechamento.aindaReceber > 0 &&
-    fechamento.depoisDeReceber >= 0;
-
-  const tomBorda = fecha ? "" : fechaSeReceber ? "border-amber-200" : "border-rose-200";
-  const tomTitulo = fecha ? "text-slate-900" : fechaSeReceber ? "text-amber-900" : "text-rose-700";
-
-  let titulo: string;
-  if (fecha) {
-    titulo =
-      contexto === "empresa"
-        ? `Sim. Depois de pagar o que vence, restam ${formatCurrency(fechamento.depoisDePagar)} no caixa.`
-        : `Sim. Depois do que ainda vence, sobram ${formatCurrency(fechamento.depoisDePagar)}.`;
-  } else if (fechaSeReceber) {
-    titulo = `Hoje o caixa não cobre (faltam ${formatCurrency(Math.abs(fechamento.depoisDePagar))}). Se o a receber entrar, o mês fecha com ${formatCurrency(fechamento.depoisDeReceber)}.`;
-  } else {
-    titulo =
-      contexto === "empresa"
-        ? `Não. Faltam ${formatCurrency(Math.abs(fechamento.depoisDePagar))} no caixa para cobrir o que ainda vence.`
-        : `Não. Faltam ${formatCurrency(Math.abs(fechamento.depoisDePagar))} para cobrir o que ainda vence.`;
-  }
-
-  return (
-    <section className={`app-card p-5 ${tomBorda}`}>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-        {contexto === "empresa"
-          ? "O caixa cobre o que vence?"
-          : contexto === "consolidado"
-            ? "Pessoal + empresa: o caixa cobre o que vence?"
-            : "Este mês fecha?"}
-      </p>
-      <p className={`mt-2 text-2xl font-bold ${tomTitulo}`}>{titulo}</p>
-      <p className="mt-2 text-sm text-slate-500">
-        Caixa {formatCurrency(fechamento.caixa)}
-        {fechamento.aindaPagar > 0
-          ? ` · ainda a pagar ${formatCurrency(fechamento.aindaPagar)}`
-          : " · nada a pagar em aberto neste mês"}
-        {fechamento.aindaReceber > 0
-          ? ` · a receber ${formatCurrency(fechamento.aindaReceber)}`
-          : ""}
-      </p>
-      {contexto === "pessoal" && fechamento.reservaMeses != null && (
-        <p className="mt-1 text-xs text-slate-400">
-          Reserva: o caixa cobre cerca de {fechamento.reservaMeses.toFixed(1)}{" "}
-          {fechamento.reservaMeses >= 2 ? "meses" : "mês"} de saídas já realizadas.
-        </p>
-      )}
-      {contexto === "empresa" && (
-        <p className="mt-1 text-xs text-slate-400">
-          {fecha
-            ? fechamento.aindaReceber > 0
-              ? `Há ${formatCurrency(fechamento.aindaReceber)} a receber — é extra, não entra neste cálculo de caixa.`
-              : "A receber em aberto entra na agenda, não no caixa."
-            : fechaSeReceber
-              ? "A receber ainda não é dinheiro na conta. O mês só fecha se esse valor entrar a tempo."
-              : fechamento.aindaReceber > 0
-                ? `Há ${formatCurrency(fechamento.aindaReceber)} a receber. Mesmo recebendo tudo, ainda faltariam ${formatCurrency(Math.abs(fechamento.depoisDeReceber))}.`
-                : "A receber em aberto entra na agenda, não no caixa."}
-        </p>
-      )}
-      {contexto === "consolidado" && (
-        <p className="mt-1 text-xs text-slate-400">
-          Visão conjunta de pessoal e empresa — não é um único caixa. Transferências
-          entre contextos entram no resultado como despesa e receita.
-          {fechamento.reservaMeses != null
-            ? ` Reserva aproximada: ${fechamento.reservaMeses.toFixed(1)} ${fechamento.reservaMeses >= 2 ? "meses" : "mês"} de saídas já realizadas.`
-            : ""}
-        </p>
-      )}
-    </section>
   );
 }
 
