@@ -222,7 +222,7 @@ export async function listAcoesAgora(
   );
 }
 
-/** Conta atrasados no mesmo universo do “Fazer agora” (agenda, parcelas e faturas). */
+/** Conta atrasados no mesmo universo de “Vence nos próximos 7 dias” (agenda, parcelas e faturas). */
 export async function contarVencimentosAtrasados(
   contexto?: ContextoVisualizacao,
 ): Promise<number> {

@@ -210,11 +210,11 @@ export function DashboardPage() {
         <section className="app-card p-5">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
-              <h2 className="font-semibold text-slate-900">Fazer agora</h2>
+              <h2 className="font-semibold text-slate-900">Vence nos próximos 7 dias</h2>
               <p className="text-xs text-slate-500">
                 {contexto === "empresa"
-                  ? "Atrasados, a receber e o que vence em 7 dias"
-                  : "Atrasados e o que vence em 7 dias"}
+                  ? "Inclui atrasados e a receber nesse prazo"
+                  : "Inclui também o que já atrasou"}
               </p>
             </div>
             <Link to="/contas-pagar-receber" className="app-link text-xs">

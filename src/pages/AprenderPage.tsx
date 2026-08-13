@@ -55,7 +55,7 @@ const PASSOS: {
   {
     id: "dashboard",
     titulo: "Acompanhe o mês no Início",
-    detalhe: "Veja se o mês fecha, o que fazer agora e o resultado (padrão: só o que já entrou/saiu).",
+    detalhe: "Veja se o mês fecha, o que vence nos próximos 7 dias e o resultado (padrão: só o que já entrou/saiu).",
     to: "/",
     cta: "Abrir Início",
   },
@@ -108,7 +108,7 @@ const PASSOS_EMPRESA: {
 const GLOSSARIO: { titulo: string; texto: string; to: string }[] = [
   {
     titulo: "Início",
-    texto: "Resumo do mês: se fecha, o que fazer agora e o resultado.",
+    texto: "Resumo do mês: se fecha, o que vence em 7 dias e o resultado.",
     to: "/",
   },
   {
