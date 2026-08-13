@@ -14,9 +14,15 @@
   ; NÃO usar "cmd /C ping ... & start" — o instalador fecha em modo /P e
   ; mata o cmd filho antes do delay, então o app nunca reabre.
   ; RunAsUser lança processo independente (mesmo mecanismo do /R do Tauri).
+  ; Binário explícito (Cargo name): evita MAINBINARYNAME vazio / path quebrado.
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1
     DetailPrint "Reabrindo WSF Money..."
-    nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
+    IfFileExists "$INSTDIR\financas.exe" 0 wsf_reopen_fallback
+      nsis_tauri_utils::RunAsUser "$INSTDIR\financas.exe" ""
+      Goto wsf_reopen_done
+    wsf_reopen_fallback:
+      nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
+    wsf_reopen_done:
   ${EndIf}
 !macroend

@@ -207,6 +207,9 @@ fn fechar_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
 /// Agenda um processo separado que reabre o app se, após o update, ele não voltar sozinho.
 /// Cobre: instalador bloqueado, relaunch NSIS falhou, ou ShellExecute do updater falhou
 /// (o plugin mesmo assim encerra o processo).
+///
+/// Não usar `cmd /C start "" "…"`: com path em `%LOCALAPPDATA%\WSF Money\…` o quoting do
+/// CreateProcess + DETACHED quebra e o Windows mostra “não pode localizar \\”.
 #[tauri::command]
 fn agendar_reopen_apos_update() -> Result<(), String> {
     #[cfg(windows)]
@@ -215,7 +218,8 @@ fn agendar_reopen_apos_update() -> Result<(), String> {
         use std::process::Command;
 
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let exe = exe.to_string_lossy().replace('"', "");
+        // Single-quoted PowerShell literal; escape embedded quotes.
+        let exe_lit = exe.to_string_lossy().replace('\'', "''");
 
         // DETACHED para sobreviver ao process::exit do plugin updater.
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -223,14 +227,24 @@ fn agendar_reopen_apos_update() -> Result<(), String> {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         const FLAGS: u32 = CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
 
-        // Espera o updater/NSIS; se financas.exe não estiver no ar, reabre o exe atual
-        // (versão nova se a instalação concluiu, senão a antiga — melhor que ficar fechado).
+        // LiteralPath lida com espaços no productName; sem `start` do cmd.
         let script = format!(
-            "timeout /t 15 /nobreak >nul & tasklist /FI \"IMAGENAME eq financas.exe\" | find /I \"financas.exe\" >nul || start \"\" \"{exe}\""
+            "Start-Sleep -Seconds 18; \
+             if (-not (Get-Process -Name 'financas' -ErrorAction SilentlyContinue)) {{ \
+               Start-Process -LiteralPath '{exe_lit}' \
+             }}"
         );
 
-        Command::new("cmd.exe")
-            .args(["/C", &script])
+        Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &script,
+            ])
             .creation_flags(FLAGS)
             .spawn()
             .map_err(|e| format!("Falha ao agendar reabertura: {e}"))?;
