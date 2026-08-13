@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "financas"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "base64 0.22.1",
  "serde",
