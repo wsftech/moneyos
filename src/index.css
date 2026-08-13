@@ -86,6 +86,16 @@
     @apply bg-app-sidebar-active text-white;
   }
 
+  .titlebar-drag {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .titlebar-no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
   .app-heading {
     @apply text-slate-900;
   }

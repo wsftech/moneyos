@@ -91,7 +91,7 @@ export function PerfilForm() {
         <AppLogo variant="logo" className="h-8 w-auto max-w-[220px]" />
       </div>
       <p className="text-xs text-slate-500">
-        Ícone e logo exibidos no menu lateral (o wordmark usa fundo escuro).
+        Ícone e logo: o wordmark aparece na barra superior (fundo escuro).
       </p>
       <Input
         label="Seu nome"

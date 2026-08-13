@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AppLogo, useNomeUsuario } from "./AppBrand";
+import { useNomeUsuario } from "./AppBrand";
+import { TitleBar } from "./TitleBar";
 import { ContextoSelector } from "./ContextoSelector";
 import { IconChevronLeft, IconChevronRight, NAV_ICONS } from "./NavIcons";
 import { Button } from "./ui/Button";
@@ -9,44 +10,49 @@ import { contarAlertasOrcamento } from "../db/alertasOrcamento";
 import { contarVencimentosAtrasados } from "../db/proximosVencimentos";
 import { verificarLembretesVencimento } from "../services/lembretesVencimento";
 
-const SIDEBAR_STORAGE_KEY = "moneyos_sidebar_expanded";
-
 const NAV_GROUPS = [
   {
     id: "principal",
     label: null as string | null,
     items: [
-      { to: "/", label: "Dashboard", end: true, icon: "dashboard" as const },
+      { to: "/", label: "Início", end: true, icon: "dashboard" as const },
       {
         to: "/transacoes",
-        label: "Transações",
+        label: "Lançamentos",
         icon: "transacoes" as const,
-        match: "lancamentos" as const,
+        inactiveSearch: "aba=recorrentes",
       },
       { to: "/contas", label: "Contas", icon: "contas" as const },
+      { to: "/categorias", label: "Categorias", icon: "categorias" as const },
     ],
   },
   {
-    id: "planejamento",
-    label: "Planejamento",
+    id: "a-vencer",
+    label: "A vencer",
     items: [
-      { to: "/metas", label: "Metas", icon: "metas" as const },
-      { to: "/orcamentos", label: "Orçamentos", icon: "orcamentos" as const, badgeKey: "orcamentos" as const },
-      { to: "/relatorios", label: "Relatórios", icon: "relatorios" as const },
-      { to: "/categorias", label: "Categorias", icon: "categorias" as const },
+      {
+        to: "/contas-pagar-receber",
+        label: "Agenda",
+        icon: "pagarReceber" as const,
+        badgeKey: "vencimentos" as const,
+      },
       {
         to: "/transacoes?aba=recorrentes",
         label: "Recorrentes",
         icon: "recorrentes" as const,
-        match: "recorrentes" as const,
+        matchPath: "/transacoes",
+        matchSearch: "aba=recorrentes",
       },
-      {
-        to: "/contas-pagar-receber",
-        label: "A pagar/receber",
-        icon: "pagarReceber" as const,
-        badgeKey: "vencimentos" as const,
-      },
-      { to: "/dividas-parceladas", label: "Dívidas parceladas", icon: "financiamentos" as const },
+      { to: "/dividas-parceladas", label: "Dívidas", icon: "financiamentos" as const },
+    ],
+  },
+  {
+    id: "plano",
+    label: "Plano",
+    items: [
+      { to: "/orcamentos", label: "Orçamentos", icon: "orcamentos" as const, badgeKey: "orcamentos" as const },
+      { to: "/metas", label: "Metas", icon: "metas" as const },
+      { to: "/relatorios", label: "Relatórios", icon: "relatorios" as const },
     ],
   },
   {
@@ -58,16 +64,6 @@ const NAV_GROUPS = [
     ],
   },
 ] as const;
-
-function readExpandedPreference(): boolean {
-  try {
-    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    if (stored === null) return true;
-    return stored === "true";
-  } catch {
-    return true;
-  }
-}
 
 function iniciaisUsuario(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean);
@@ -106,7 +102,7 @@ function NovoLancamentoMenu() {
         aria-expanded={open}
         aria-haspopup="menu"
       >
-        + Novo lançamento
+        + Novo
       </Button>
       {open && (
         <div
@@ -135,7 +131,7 @@ function NovoLancamentoMenu() {
             className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
             onClick={() => go("/contas-pagar-receber?nova=1")}
           >
-            Agendar a pagar/receber
+            Compromisso na agenda
           </button>
           <button
             type="button"
@@ -155,13 +151,9 @@ export function Layout() {
   const { label: contextoLabel, contexto } = useContexto();
   const { nome: nomeUsuario } = useNomeUsuario();
   const location = useLocation();
-  const [expanded, setExpanded] = useState(readExpandedPreference);
+  const [expanded, setExpanded] = useState(false);
   const [alertasOrcamento, setAlertasOrcamento] = useState(0);
   const [vencimentosAtrasados, setVencimentosAtrasados] = useState(0);
-
-  const abaTransacoes = new URLSearchParams(location.search).get("aba");
-  const emRecorrentes =
-    location.pathname === "/transacoes" && abaTransacoes === "recorrentes";
 
   useEffect(() => {
     void contarAlertasOrcamento(contexto).then(setAlertasOrcamento);
@@ -174,33 +166,16 @@ export function Layout() {
     return () => window.clearInterval(interval);
   }, [contexto]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(expanded));
-    } catch {
-      /* ignore */
-    }
-  }, [expanded]);
-
   return (
-    <div className="flex h-screen overflow-hidden bg-app-bg">
-      <aside
-        className={`flex h-full shrink-0 flex-col bg-app-sidebar text-slate-300 transition-[width] duration-300 ease-in-out ${
-          expanded ? "w-60" : "w-[4.25rem]"
-        }`}
-      >
-        <div className={`border-b border-white/10 ${expanded ? "px-4 py-5" : "px-2 py-4"}`}>
-          <div className={`flex items-center ${expanded ? "" : "justify-center"}`}>
-            {expanded ? (
-              <AppLogo variant="logo" className="h-8 w-auto max-w-full" title="WSF Money" />
-            ) : (
-              <AppLogo variant="icon" className="h-10 w-10" title="WSF Money" />
-            )}
-          </div>
-          <span className="sr-only">WSF Money</span>
-        </div>
-
-        <nav className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-2">
+    <div className="flex h-screen flex-col overflow-hidden bg-app-bg">
+      <TitleBar />
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <aside
+          className={`flex h-full shrink-0 flex-col bg-app-sidebar text-slate-300 transition-[width] duration-300 ease-in-out ${
+            expanded ? "w-60" : "w-[4.25rem]"
+          }`}
+        >
+        <nav className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-2 pt-3">
           {NAV_GROUPS.map((group) => (
             <div key={group.id}>
               {expanded && group.label && (
@@ -219,7 +194,6 @@ export function Layout() {
                           vencimentosAtrasados > 0
                         ? vencimentosAtrasados
                         : null;
-                  const match = "match" in item ? item.match : undefined;
                   return (
                     <NavLink
                       key={item.to + item.label}
@@ -228,10 +202,14 @@ export function Layout() {
                       title={expanded ? undefined : item.label}
                       className={({ isActive }) => {
                         let active = isActive;
-                        if (match === "recorrentes") active = emRecorrentes;
-                        else if (match === "lancamentos") {
+                        if ("matchPath" in item && item.matchPath) {
                           active =
-                            location.pathname === "/transacoes" && !emRecorrentes;
+                            location.pathname === item.matchPath &&
+                            location.search.includes(
+                              "matchSearch" in item && item.matchSearch ? item.matchSearch : "",
+                            );
+                        } else if ("inactiveSearch" in item && item.inactiveSearch) {
+                          active = isActive && !location.search.includes(item.inactiveSearch);
                         } else if (item.to.startsWith("/configuracoes")) {
                           active = location.pathname.startsWith("/configuracoes");
                         }
@@ -291,30 +269,25 @@ export function Layout() {
               </span>
             )}
           </div>
-
-          <div className="border-t border-white/10 p-2">
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className={`flex w-full items-center rounded-xl py-2.5 text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-100 ${
-                expanded ? "gap-3 px-3" : "justify-center"
-              }`}
-              title={expanded ? "Recolher menu" : "Expandir menu"}
-              aria-label={expanded ? "Recolher menu" : "Expandir menu"}
-              aria-expanded={expanded}
-            >
-              {expanded ? (
-                <>
-                  <IconChevronLeft className="h-5 w-5 shrink-0" />
-                  <span className="text-sm">Recolher</span>
-                </>
-              ) : (
-                <IconChevronRight className="h-5 w-5 shrink-0" />
-              )}
-            </button>
-          </div>
         </div>
       </aside>
+
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className={`absolute z-30 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-md shadow-slate-900/10 transition-[left] duration-300 hover:bg-slate-50 hover:text-app-sidebar ${
+            expanded ? "left-60 top-8" : "left-[4.25rem] top-8"
+          }`}
+          title={expanded ? "Recolher menu" : "Expandir menu"}
+          aria-label={expanded ? "Recolher menu" : "Expandir menu"}
+          aria-expanded={expanded}
+        >
+          {expanded ? (
+            <IconChevronLeft className="h-3.5 w-3.5" />
+          ) : (
+            <IconChevronRight className="h-3.5 w-3.5" />
+          )}
+        </button>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 items-center justify-end gap-3 border-b border-slate-200/80 bg-white/90 px-6 py-3 backdrop-blur-md">
@@ -324,6 +297,7 @@ export function Layout() {
         <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet />
         </main>
+      </div>
       </div>
     </div>
   );
