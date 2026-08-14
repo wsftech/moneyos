@@ -8,7 +8,6 @@ import {
   nowIso,
   toBoolean,
   withDatabase,
-  getErrorMessage,
 } from "./utils";
 import { addMonths, atualizarStatusParcela, mesFromDate, todayIsoDate } from "../utils/dates";
 import { arredondarMoeda, gerarValoresPrevistos, normalizarFaixaInicial, redistribuirPrevistosPendentes } from "../utils/financiamentoCalc";
