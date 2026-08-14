@@ -10,7 +10,7 @@ import {
   withDatabase,
 } from "./utils";
 import { addMonths, atualizarStatusParcela, mesFromDate, todayIsoDate } from "../utils/dates";
-import { arredondarMoeda, gerarValoresPrevistos } from "../utils/financiamentoCalc";
+import { arredondarMoeda, gerarValoresPrevistos, normalizarFaixaInicial, redistribuirPrevistosPendentes } from "../utils/financiamentoCalc";
 import type {
   Contexto,
   ContextoVisualizacao,
@@ -33,6 +33,8 @@ export interface FinanciamentoInput {
   data_primeira_parcela: string;
   ativo?: boolean;
   observacoes?: string | null;
+  faixa_inicial_qtd?: number | null;
+  faixa_inicial_valor?: number | null;
 }
 
 export interface PagamentoParcelaInput {
@@ -62,6 +64,8 @@ interface FinanciamentoRow {
   data_primeira_parcela: string;
   ativo: number;
   observacoes: string | null;
+  faixa_inicial_qtd: number | null;
+  faixa_inicial_valor: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,7 +84,15 @@ interface ParcelaRow {
 }
 
 function mapFinanciamento(row: FinanciamentoRow): Financiamento {
-  return { ...row, ativo: toBoolean(row.ativo) };
+  return {
+    ...row,
+    ativo: toBoolean(row.ativo),
+    faixa_inicial_qtd: row.faixa_inicial_qtd && row.faixa_inicial_qtd > 0 ? row.faixa_inicial_qtd : null,
+    faixa_inicial_valor:
+      row.faixa_inicial_valor != null && row.faixa_inicial_valor > 0
+        ? row.faixa_inicial_valor
+        : null,
+  };
 }
 
 function mapParcela(row: ParcelaRow): FinanciamentoParcela {
@@ -93,9 +105,10 @@ async function gerarParcelas(
   valorParcela: number,
   totalParcelas: number,
   dataPrimeira: string,
+  faixa?: ReturnType<typeof normalizarFaixaInicial>,
 ): Promise<void> {
   const db = await getDatabase();
-  const valores = gerarValoresPrevistos(valorTotal, valorParcela, totalParcelas);
+  const valores = gerarValoresPrevistos(valorTotal, valorParcela, totalParcelas, faixa);
   for (let i = 0; i < totalParcelas; i++) {
     const vencimento = addMonths(dataPrimeira, i);
     const status = atualizarStatusParcela(vencimento, "pendente");
@@ -119,20 +132,19 @@ async function recalcularParcelasPendentes(fin: Financiamento): Promise<void> {
 
   if (pendentes.length === 0) return;
 
-  for (let i = 0; i < pendentes.length; i++) {
-    let previsto = fin.valor_parcela;
-    if (pendentes.length === 1) {
-      previsto = saldoRestante;
-    } else if (i === pendentes.length - 1) {
-      const restante = arredondarMoeda(
-        saldoRestante - fin.valor_parcela * (pendentes.length - 1),
-      );
-      if (restante > 0) previsto = restante;
-    }
-    await db.execute(
-      "UPDATE financiamento_parcelas SET valor_previsto = $1 WHERE id = $2",
-      [previsto, pendentes[i].id],
-    );
+  const faixa = normalizarFaixaInicial(fin.faixa_inicial_qtd, fin.faixa_inicial_valor);
+  const valoresOriginais = gerarValoresPrevistos(
+    fin.valor_total,
+    fin.valor_parcela,
+    fin.total_parcelas,
+    faixa,
+  );
+  const updates = redistribuirPrevistosPendentes(saldoRestante, pendentes, valoresOriginais);
+  for (const u of updates) {
+    await db.execute("UPDATE financiamento_parcelas SET valor_previsto = $1 WHERE id = $2", [
+      u.previsto,
+      u.id,
+    ]);
   }
 }
 
@@ -212,11 +224,13 @@ export async function createFinanciamento(input: FinanciamentoInput): Promise<Fi
   const resumo = await withDatabase(async () => {
     const db = await getDatabase();
     const timestamp = nowIso();
+    const faixa = normalizarFaixaInicial(input.faixa_inicial_qtd, input.faixa_inicial_valor);
     const result = await db.execute(
       `INSERT INTO financiamentos
        (descricao, valor_total, valor_parcela, total_parcelas, contexto, conta_id,
-        categoria_id, data_primeira_parcela, ativo, observacoes, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        categoria_id, data_primeira_parcela, ativo, observacoes,
+        faixa_inicial_qtd, faixa_inicial_valor, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         input.descricao,
         input.valor_total,
@@ -228,6 +242,8 @@ export async function createFinanciamento(input: FinanciamentoInput): Promise<Fi
         input.data_primeira_parcela,
         fromBoolean(input.ativo ?? true),
         input.observacoes ?? null,
+        faixa?.qtd ?? null,
+        faixa?.valor ?? null,
         timestamp,
         timestamp,
       ],
@@ -239,21 +255,19 @@ export async function createFinanciamento(input: FinanciamentoInput): Promise<Fi
       input.valor_parcela,
       input.total_parcelas,
       input.data_primeira_parcela,
+      faixa,
     );
     const fin = await getFinanciamento(id);
     if (!fin) throw new DatabaseError("Falha ao criar financiamento");
     return calcularResumo(fin);
   });
 
-  const { garantirOrcamentoParcelaDivida } = await import("./orcamentos");
-  const mesRef = input.data_primeira_parcela.slice(0, 7);
-  await garantirOrcamentoParcelaDivida({
-    descricao: input.descricao,
-    categoria_id: input.categoria_id,
-    contexto: input.contexto,
-    valor_parcela: input.valor_parcela,
-    mes_referencia: mesRef,
-  });
+  if (input.categoria_id != null) {
+    const { getCategoria } = await import("./categorias");
+    const { garantirOrcamentoCategoriaMes } = await import("./orcamentos");
+    const cat = await getCategoria(input.categoria_id);
+    if (cat) await garantirOrcamentoCategoriaMes(cat);
+  }
 
   return resumo;
 }
@@ -262,7 +276,7 @@ export async function updateFinanciamento(
   id: number,
   input: Partial<FinanciamentoInput>,
 ): Promise<FinanciamentoResumo> {
-  return withDatabase(async () => {
+  const resumo = await withDatabase(async () => {
     const existing = await getFinanciamento(id);
     if (!existing) throw new DatabaseError("Financiamento não encontrado");
 
@@ -273,12 +287,19 @@ export async function updateFinanciamento(
     const db = await getDatabase();
     const novoTotal = input.valor_total ?? existing.valor_total;
     const novaParcelaRef = input.valor_parcela ?? existing.valor_parcela;
+    const novaFaixa = normalizarFaixaInicial(
+      input.faixa_inicial_qtd !== undefined ? input.faixa_inicial_qtd : existing.faixa_inicial_qtd,
+      input.faixa_inicial_valor !== undefined
+        ? input.faixa_inicial_valor
+        : existing.faixa_inicial_valor,
+    );
 
     await db.execute(
       `UPDATE financiamentos
        SET descricao = $1, valor_total = $2, valor_parcela = $3, conta_id = $4,
-           categoria_id = $5, ativo = $6, observacoes = $7, updated_at = $8
-       WHERE id = $9`,
+           categoria_id = $5, ativo = $6, observacoes = $7,
+           faixa_inicial_qtd = $8, faixa_inicial_valor = $9, updated_at = $10
+       WHERE id = $11`,
       [
         input.descricao ?? existing.descricao,
         novoTotal,
@@ -287,6 +308,8 @@ export async function updateFinanciamento(
         input.categoria_id !== undefined ? input.categoria_id : existing.categoria_id,
         fromBoolean(input.ativo ?? existing.ativo),
         input.observacoes !== undefined ? input.observacoes : existing.observacoes,
+        novaFaixa?.qtd ?? null,
+        novaFaixa?.valor ?? null,
         nowIso(),
         id,
       ],
@@ -297,13 +320,24 @@ export async function updateFinanciamento(
 
     if (
       (input.valor_total !== undefined && input.valor_total !== existing.valor_total) ||
-      (input.valor_parcela !== undefined && input.valor_parcela !== existing.valor_parcela)
+      (input.valor_parcela !== undefined && input.valor_parcela !== existing.valor_parcela) ||
+      input.faixa_inicial_qtd !== undefined ||
+      input.faixa_inicial_valor !== undefined
     ) {
       await recalcularParcelasPendentes(fin);
     }
 
     return calcularResumo(fin);
   });
+
+  if (resumo.categoria_id != null) {
+    const { getCategoria } = await import("./categorias");
+    const { garantirOrcamentoCategoriaMes } = await import("./orcamentos");
+    const cat = await getCategoria(resumo.categoria_id);
+    if (cat) await garantirOrcamentoCategoriaMes(cat);
+  }
+
+  return resumo;
 }
 
 export async function deleteFinanciamento(id: number): Promise<void> {
@@ -399,6 +433,7 @@ export async function getCompromissoFinanciamentosMes(
 ): Promise<number> {
   return withDatabase(async () => {
     const db = await getDatabase();
+    const inicioMes = `${mesReferencia}-01`;
     const rows = await db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(fp.valor_previsto), 0) as total
        FROM financiamento_parcelas fp
@@ -407,8 +442,11 @@ export async function getCompromissoFinanciamentosMes(
          AND f.categoria_id = $1
          AND f.contexto = $2
          AND fp.status IN ('pendente', 'atrasada')
-         AND fp.vencimento LIKE $3`,
-      [categoriaId, contexto, `${mesReferencia}%`],
+         AND (
+           fp.vencimento LIKE $3
+           OR (fp.status = 'atrasada' AND fp.vencimento < $4)
+         )`,
+      [categoriaId, contexto, `${mesReferencia}%`, inicioMes],
     );
     return rows[0]?.total ?? 0;
   });

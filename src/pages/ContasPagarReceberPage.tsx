@@ -9,7 +9,7 @@ import {
 import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
-import { Input, Select } from "../components/ui/FormFields";
+import { Input, Select, ValorInput } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
 import { filtrarCategoriasParaLancamento, findCategoriaById, listCategorias } from "../db/categorias";
@@ -105,7 +105,7 @@ export function ContasPagarReceberPage() {
     <div>
       <PageHeader
         title="Agenda"
-        subtitle="Compromissos avulsos com data — o que se repete todo mês fica em Lançamentos → Recorrentes"
+        subtitle="Compromissos avulsos — a pagar com categoria consomem o orçamento do mês"
         action={
           <Button
             onClick={() => {
@@ -422,19 +422,25 @@ function ItemModal({
       setFormError("Preencha todos os campos.");
       return;
     }
+    if (!categoriaId) {
+      setFormError(
+        tipo === "pagar"
+          ? "Informe a categoria para o compromisso entrar no orçamento do mês."
+          : "Informe a categoria para o compromisso entrar na receita planejada do mês.",
+      );
+      return;
+    }
 
+    const mesOrcamento = mesReferencia || vencimento.slice(0, 7);
     const input: ContaPagarReceberInput = {
       descricao,
       valor: valorNum,
       vencimento,
       tipo,
       contexto: resolveContexto(contexto, formContexto),
-      categoria_id: categoriaId ? Number(categoriaId) : null,
+      categoria_id: Number(categoriaId),
       contato_id: contatoId ? Number(contatoId) : null,
-      mes_referencia:
-        categoriaId && mesReferencia && mesReferencia !== vencimento.slice(0, 7)
-          ? mesReferencia
-          : null,
+      mes_referencia: mesOrcamento,
     };
 
     setSaving(true);
@@ -444,6 +450,10 @@ function ItemModal({
       } else {
         await createContaPagarReceber(input);
       }
+      const { getCategoria } = await import("../db/categorias");
+      const { garantirOrcamentoCategoriaMes } = await import("../db/orcamentos");
+      const cat = await getCategoria(Number(categoriaId));
+      if (cat) await garantirOrcamentoCategoriaMes(cat, mesOrcamento);
       onSaved();
     } catch (err) {
       setFormError(getErrorMessage(err));
@@ -457,7 +467,7 @@ function ItemModal({
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
         <Input label="Descrição" value={descricao} onChange={(e) => setDescricao(e.target.value)} required />
-        <Input label="Valor" type="number" step="0.01" min="0" value={valor} onChange={(e) => setValor(e.target.value)} required />
+        <ValorInput label="Valor" min="0" value={valor} onChange={(e) => setValor(e.target.value)} required />
         <Input label="Vencimento" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} required />
         <Select
           label="Tipo"
@@ -488,14 +498,19 @@ function ItemModal({
           </Link>
         </p>
         <Select
-          label="Categoria"
+          label="Categoria (orçamento)"
           value={categoriaId}
           onChange={(e) => setCategoriaId(e.target.value)}
           options={[
-            { value: "", label: "Sem categoria" },
+            { value: "", label: "Selecione a categoria" },
             ...categoriasFiltradas.map((c) => ({ value: String(c.id), label: c.nome })),
           ]}
+          required
         />
+        <p className="-mt-2 text-xs text-slate-500">
+          O valor entra como comprometido no orçamento da categoria no mês de competência
+          {mesReferencia ? ` (${mesReferencia})` : ""}.
+        </p>
         {categoriaId && (
           <>
             <Input

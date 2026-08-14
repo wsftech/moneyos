@@ -36,6 +36,17 @@ export const BANCOS_PRESETS = [
 
 export type BancoPreset = (typeof BANCOS_PRESETS)[number];
 
+export const BANDEIRAS_CARTAO = [
+  { id: "visa", nome: "Visa", sigla: "VISA", cor: "#1A1F71" },
+  { id: "mastercard", nome: "Mastercard", sigla: "MC", cor: "#EB001B" },
+  { id: "elo", nome: "Elo", sigla: "ELO", cor: "#111111" },
+  { id: "amex", nome: "American Express", sigla: "AMEX", cor: "#006FCF" },
+  { id: "hipercard", nome: "Hipercard", sigla: "HIPC", cor: "#B3131B" },
+  { id: "diners", nome: "Diners Club", sigla: "DC", cor: "#004B80" },
+] as const;
+
+export type BandeiraCartao = (typeof BANDEIRAS_CARTAO)[number];
+
 export function iconeConta(icone: string | null | undefined, tipo: TipoConta): string {
   return icone?.trim() || ICONE_PADRAO_POR_TIPO[tipo];
 }

@@ -104,5 +104,35 @@ pub fn get_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/017_ativos_manuais.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 18,
+            description: "categoria_delete_cascade_orcamento_recorrentes",
+            sql: include_str!("../migrations/018_categoria_delete_cascade_orcamento_recorrentes.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 19,
+            description: "cartao_final",
+            sql: include_str!("../migrations/019_cartao_final.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 20,
+            description: "emprestimo_modalidade_parcelamento",
+            sql: include_str!("../migrations/020_emprestimo_modalidade_parcelamento.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 21,
+            description: "faixa_inicial_parcelas",
+            sql: include_str!("../migrations/021_faixa_inicial_parcelas.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 22,
+            description: "impostos",
+            sql: include_str!("../migrations/022_impostos.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

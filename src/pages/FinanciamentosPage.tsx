@@ -8,12 +8,17 @@ import {
 import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
-import { Input, Select, Textarea } from "../components/ui/FormFields";
+import { Input, Select, Textarea, ValorInput } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
 import { listCategorias } from "../db/categorias";
 import { listContas } from "../db/contas";
-import { ParcelasHistoricasSection } from "../components/ParcelasHistoricasSection";
+import { ParcelasJaPagasField } from "../components/ParcelasJaPagasField";
+import {
+  FaixaInicialParcelasField,
+  resolverFaixaCadastro,
+  rotuloFaixaContrato,
+} from "../components/FaixaInicialParcelasField";
 import {
   aplicarPagamentosHistoricos,
   createFinanciamento,
@@ -29,9 +34,11 @@ import {
 import { getErrorMessage } from "../db/utils";
 import type { Contexto, ContextoVisualizacao, FinanciamentoParcela, FinanciamentoResumo } from "../types";
 import { formatCurrency, formatDate, mesAtual } from "../utils/format";
+import { descricaoSubtipoDivida } from "../constants/tiposDivida";
+import { gerarValoresPrevistos } from "../utils/financiamentoCalc";
 import {
-  validarPagamentosHistoricos,
-  type PagamentoHistoricoRow,
+  gerarPagamentosHistoricosPadrao,
+  validarParcelasJaPagas,
 } from "../utils/parcelasHistoricas";
 
 type SelecaoRapida = "mes" | "ultima" | "mes_e_ultima" | "todas" | "manual";
@@ -232,7 +239,13 @@ function FinanciamentoCard({
           <h3 className="font-semibold text-slate-900">{fin.descricao}</h3>
           <p className="text-sm text-slate-500">
             {fin.parcelas_pagas}/{fin.total_parcelas} parcelas · venc. dia{" "}
-            {fin.data_primeira_parcela.slice(8, 10)} · ref. {formatCurrency(fin.valor_parcela)}/mês
+            {fin.data_primeira_parcela.slice(8, 10)} ·{" "}
+            {rotuloFaixaContrato(
+              fin.total_parcelas,
+              fin.valor_parcela,
+              fin.faixa_inicial_qtd,
+              fin.faixa_inicial_valor,
+            )}
           </p>
           {contexto === "consolidado" && (
             <div className="mt-1">
@@ -345,10 +358,10 @@ function CadastroModal({
   const [observacoes, setObservacoes] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [historicoEnabled, setHistoricoEnabled] = useState(false);
-  const [historicoQtd, setHistoricoQtd] = useState(0);
-  const [historicoRows, setHistoricoRows] = useState<PagamentoHistoricoRow[]>([]);
-  const [historicoCriarTransacoes, setHistoricoCriarTransacoes] = useState(true);
+  const [parcelasJaPagas, setParcelasJaPagas] = useState(0);
+  const [faixaEnabled, setFaixaEnabled] = useState(false);
+  const [faixaQtd, setFaixaQtd] = useState("");
+  const [faixaValor, setFaixaValor] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -356,11 +369,13 @@ function CadastroModal({
     void (async () => {
       const ctxForm = financiamento?.contexto ?? defaultFormContexto(contexto);
       const ctxDivida = ctxForm === "empresa" ? "empresa" : "pessoal";
-      const { ensureCategoriaDivida } = await import("../db/categorias");
-      const padrao = await ensureCategoriaDivida("financiamento", ctxDivida);
+      const { findCategoriaDivida } = await import("../db/categorias");
       const [c, cat] = await Promise.all([listContas(contexto), listCategorias(contexto)]);
+      const despesas = cat.filter((x) => x.tipo === "despesa");
+      const padrao =
+        (await findCategoriaDivida("financiamento", ctxDivida)) ?? despesas[0] ?? null;
       setContas(c);
-      setCategorias(cat.filter((x) => x.tipo === "despesa"));
+      setCategorias(despesas);
 
       if (financiamento) {
         setFormContexto(financiamento.contexto);
@@ -371,9 +386,17 @@ function CadastroModal({
         setDataPrimeira(financiamento.data_primeira_parcela);
         setContaId(String(financiamento.conta_id));
         setCategoriaId(
-          financiamento.categoria_id ? String(financiamento.categoria_id) : String(padrao.id),
+          financiamento.categoria_id
+            ? String(financiamento.categoria_id)
+            : padrao
+              ? String(padrao.id)
+              : "",
         );
         setObservacoes(financiamento.observacoes ?? "");
+        const temFaixa = !!(financiamento.faixa_inicial_qtd && financiamento.faixa_inicial_valor);
+        setFaixaEnabled(temFaixa);
+        setFaixaQtd(temFaixa ? String(financiamento.faixa_inicial_qtd) : "");
+        setFaixaValor(temFaixa ? String(financiamento.faixa_inicial_valor) : "");
       } else {
         setFormContexto(defaultFormContexto(contexto));
         setDescricao("");
@@ -382,12 +405,12 @@ function CadastroModal({
         setTotalParcelas("");
         setDataPrimeira(new Date().toISOString().slice(0, 10));
         setContaId(c[0] ? String(c[0].id) : "");
-        setCategoriaId(String(padrao.id));
+        setCategoriaId(padrao ? String(padrao.id) : "");
         setObservacoes("");
-        setHistoricoEnabled(false);
-        setHistoricoQtd(0);
-        setHistoricoRows([]);
-        setHistoricoCriarTransacoes(true);
+        setParcelasJaPagas(0);
+        setFaixaEnabled(false);
+        setFaixaQtd("");
+        setFaixaValor("");
       }
     })();
   }, [open, contexto, financiamento]);
@@ -403,6 +426,16 @@ function CadastroModal({
         setFormError("Preencha descrição, categoria, valor total e parcela de referência.");
         return;
       }
+      const faixaEdit = resolverFaixaCadastro(
+        faixaEnabled,
+        faixaQtd,
+        faixaValor,
+        financiamento.total_parcelas,
+      );
+      if (faixaEdit.erro) {
+        setFormError(faixaEdit.erro);
+        return;
+      }
       setSaving(true);
       try {
         await updateFinanciamento(financiamento.id, {
@@ -412,6 +445,8 @@ function CadastroModal({
           conta_id: Number(contaId),
           categoria_id: Number(categoriaId),
           observacoes: observacoes || null,
+          faixa_inicial_qtd: faixaEdit.faixa?.qtd ?? null,
+          faixa_inicial_valor: faixaEdit.faixa?.valor ?? null,
         });
         onSaved();
       } catch (err) {
@@ -441,12 +476,18 @@ function CadastroModal({
       return;
     }
 
-    if (historicoEnabled && historicoRows.length > 0) {
-      const errHist = validarPagamentosHistoricos(historicoRows, tp);
+    if (parcelasJaPagas > 0) {
+      const errHist = validarParcelasJaPagas(parcelasJaPagas, tp);
       if (errHist) {
         setFormError(errHist);
         return;
       }
+    }
+
+    const faixaNova = resolverFaixaCadastro(faixaEnabled, faixaQtd, faixaValor, tp);
+    if (faixaNova.erro) {
+      setFormError(faixaNova.erro);
+      return;
     }
 
     const input: FinanciamentoInput = {
@@ -459,20 +500,28 @@ function CadastroModal({
       categoria_id: Number(categoriaId),
       data_primeira_parcela: dataPrimeira,
       observacoes: observacoes || null,
+      faixa_inicial_qtd: faixaNova.faixa?.qtd ?? null,
+      faixa_inicial_valor: faixaNova.faixa?.valor ?? null,
     };
 
     setSaving(true);
     try {
       const created = await createFinanciamento(input);
-      if (historicoEnabled && historicoRows.length > 0) {
+      if (parcelasJaPagas > 0) {
+        const previstos = gerarValoresPrevistos(vt, vp, tp, faixaNova.faixa);
+        const historico = gerarPagamentosHistoricosPadrao(
+          parcelasJaPagas,
+          previstos,
+          dataPrimeira,
+        );
         await aplicarPagamentosHistoricos(
           created.id,
-          historicoRows.map((r) => ({
+          historico.map((r) => ({
             numero_parcela: r.numero_parcela,
             valor_pago: r.valor,
             data_pagamento: r.data,
           })),
-          { criar_transacao: historicoCriarTransacoes, conta_id: Number(contaId) },
+          { criar_transacao: false, conta_id: Number(contaId) },
         );
       }
       onSaved();
@@ -501,11 +550,14 @@ function CadastroModal({
     >
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
+        {!isEdit && (
+          <p className="app-muted-box px-3 py-2 text-sm text-slate-600">
+            {descricaoSubtipoDivida("financiamento")}
+          </p>
+        )}
         <Input label="Descrição" value={descricao} onChange={(e) => setDescricao(e.target.value)} required />
-        <Input
+        <ValorInput
           label="Valor total do contrato"
-          type="number"
-          step="0.01"
           min="0"
           value={valorTotal}
           onChange={(e) => setValorTotal(e.target.value)}
@@ -516,10 +568,12 @@ function CadastroModal({
         </p>
         {!isEdit && (
           <div className="grid gap-4 md:grid-cols-2">
-            <Input
-              label="Parcela de referência (orçamento)"
-              type="number"
-              step="0.01"
+            <ValorInput
+              label={
+                faixaEnabled
+                  ? "Parcela das demais (orçamento)"
+                  : "Parcela de referência (orçamento)"
+              }
               min="0"
               value={valorParcela}
               onChange={(e) => setValorParcela(e.target.value)}
@@ -536,17 +590,30 @@ function CadastroModal({
           </div>
         )}
         {isEdit && (
-          <Input
-            label="Parcela de referência (orçamento)"
-            type="number"
-            step="0.01"
+          <ValorInput
+            label={
+              faixaEnabled
+                ? "Parcela das demais (orçamento)"
+                : "Parcela de referência (orçamento)"
+            }
             min="0"
             value={valorParcela}
             onChange={(e) => setValorParcela(e.target.value)}
             required
           />
         )}
-        {!isEdit && mediaParcela !== null && (
+        <FaixaInicialParcelasField
+          enabled={faixaEnabled}
+          onEnabledChange={setFaixaEnabled}
+          qtd={faixaQtd}
+          onQtdChange={setFaixaQtd}
+          valor={faixaValor}
+          onValorChange={setFaixaValor}
+          totalParcelas={isEdit ? (financiamento?.total_parcelas ?? 0) : tpPreview || 0}
+          valorParcela={vpPreview || 0}
+          valorTotal={vtPreview || 0}
+        />
+        {!isEdit && !faixaEnabled && mediaParcela !== null && (
           <p className="app-muted-box px-3 py-2 text-sm">
             Média contábil: {formatCurrency(mediaParcela)} ({tpPreview} parcelas). O{" "}
             <strong>valor previsto</strong> de cada parcela será a parcela de referência (
@@ -560,27 +627,26 @@ function CadastroModal({
           </p>
         )}
         {!isEdit && (
-          <Input
-            label="Vencimento da 1ª parcela"
-            type="date"
-            value={dataPrimeira}
-            onChange={(e) => setDataPrimeira(e.target.value)}
-            required
-          />
+          <>
+            <Input
+              label="Vencimento da 1ª parcela"
+              type="date"
+              value={dataPrimeira}
+              onChange={(e) => setDataPrimeira(e.target.value)}
+              required
+            />
+            <p className="-mt-2 text-xs text-slate-500">
+              Use a data de <strong>vencimento no contrato</strong> (ex.: todo dia 13 → 13/03), não
+              a data em que você pagou adiantado. Pagamentos reais ficam em “Parcelas já pagas” ou
+              “Registrar anteriores”.
+            </p>
+          </>
         )}
         {!isEdit && (
-          <ParcelasHistoricasSection
-            enabled={historicoEnabled}
-            onEnabledChange={setHistoricoEnabled}
-            quantidade={historicoQtd}
-            onQuantidadeChange={setHistoricoQtd}
+          <ParcelasJaPagasField
+            value={parcelasJaPagas}
+            onChange={setParcelasJaPagas}
             totalParcelas={tpPreview || 0}
-            valorReferencia={vpPreview || 0}
-            dataPrimeiraParcela={dataPrimeira}
-            rows={historicoRows}
-            onRowsChange={setHistoricoRows}
-            criarTransacoes={historicoCriarTransacoes}
-            onCriarTransacoesChange={setHistoricoCriarTransacoes}
           />
         )}
         {isEdit && (
@@ -608,8 +674,8 @@ function CadastroModal({
         )}
         <Textarea label="Observações" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
         <p className="text-xs text-slate-500">
-          A parcela entra no orçamento da categoria escolhida (comprometido). Ao criar, um
-          envelope recorrente com o valor da parcela · gerado automaticamente.
+          A parcela entra no orçamento da categoria escolhida (gasto realizado + comprometido).
+          Defina o limite dessa categoria em Orçamentos — não criamos um item por contrato.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
@@ -658,6 +724,7 @@ function PagamentoModal({
         if (modoHistorico) {
           setSelecionadas(new Map());
           setSelecaoRapida("manual");
+          setCriarTransacoes(false);
         } else {
           aplicarSelecaoRapida(ps, "mes");
         }
@@ -781,7 +848,8 @@ function PagamentoModal({
 
           {modoHistorico && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              Selecione as parcelas já pagas antes do cadastro e informe data e valor do extrato.
+              Informe data e valor reais do extrato nas parcelas ainda pendentes. O cadastro só
+              registra a quantidade já paga, sem lançar despesa.
             </p>
           )}
 
@@ -866,14 +934,13 @@ function PagamentoModal({
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          step="0.01"
+                        <ValorInput
+                          compact
                           min="0"
                           disabled={!checked}
                           value={checked ? (sel?.valor ?? p.valor_previsto) : ""}
                           onChange={(e) => setValorParcela(p.id, parseFloat(e.target.value) || 0)}
-                          className="w-28 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-700 disabled:opacity-50"
+                          className="w-24 !rounded-lg !px-2 !py-1 text-sm"
                         />
                       </td>
                     </tr>

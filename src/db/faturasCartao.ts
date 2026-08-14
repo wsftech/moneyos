@@ -1,8 +1,9 @@
 import { getConta, getSaldoConta, listContas } from "./contas";
 import { getDatabase } from "./connection";
 import { createTransferencia } from "./transacoes";
-import { nowIso, withDatabase } from "./utils";
+import { isUniqueConstraintError, nowIso, withDatabase } from "./utils";
 import type {
+  Contexto,
   ContextoVisualizacao,
   FaturaCartaoResumo,
   ResumoCartaoCredito,
@@ -13,6 +14,7 @@ import {
   mesFechamentoParaData,
   periodoFaturaCartao,
 } from "../utils/faturaCartao";
+import { todayIsoDate } from "../utils/dates";
 import { arredondarMoeda } from "../utils/format";
 
 interface FaturaRow {
@@ -74,19 +76,46 @@ async function ensureFaturaRecord(
       "SELECT * FROM faturas_cartao WHERE conta_id = $1 AND mes_referencia = $2",
       [contaId, mesReferencia],
     );
-    if (existing[0]) return existing[0];
 
-    const ts = nowIso();
-    const result = await db.execute(
-      `INSERT INTO faturas_cartao
-       (conta_id, mes_referencia, periodo_inicio, periodo_fim, vencimento, total, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, 0, 'aberta', $6, $6)`,
-      [contaId, mesReferencia, inicio, fim, vencimento, ts],
-    );
-    const rows = await db.select<FaturaRow[]>("SELECT * FROM faturas_cartao WHERE id = $1", [
-      result.lastInsertId,
-    ]);
-    return rows[0] ?? null;
+    let row = existing[0] ?? null;
+    if (!row) {
+      const ts = nowIso();
+      try {
+        const result = await db.execute(
+          `INSERT INTO faturas_cartao
+           (conta_id, mes_referencia, periodo_inicio, periodo_fim, vencimento, total, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, 0, 'aberta', $6, $6)`,
+          [contaId, mesReferencia, inicio, fim, vencimento, ts],
+        );
+        const rows = await db.select<FaturaRow[]>("SELECT * FROM faturas_cartao WHERE id = $1", [
+          result.lastInsertId,
+        ]);
+        row = rows[0] ?? null;
+      } catch (err) {
+        if (!isUniqueConstraintError(err)) throw err;
+        const again = await db.select<FaturaRow[]>(
+          "SELECT * FROM faturas_cartao WHERE conta_id = $1 AND mes_referencia = $2",
+          [contaId, mesReferencia],
+        );
+        row = again[0] ?? null;
+      }
+    }
+    if (!row) return null;
+
+    if (
+      row.periodo_inicio !== inicio ||
+      row.periodo_fim !== fim ||
+      row.vencimento !== vencimento
+    ) {
+      await db.execute(
+        `UPDATE faturas_cartao
+         SET periodo_inicio = $1, periodo_fim = $2, vencimento = $3, updated_at = $4
+         WHERE id = $5`,
+        [inicio, fim, vencimento, nowIso(), row.id],
+      );
+      return { ...row, periodo_inicio: inicio, periodo_fim: fim, vencimento };
+    }
+    return row;
   });
 }
 
@@ -114,7 +143,7 @@ export async function sincronizarFaturaCartao(
     );
 
     const total = await recalcularTotalFatura(db, fatura.id);
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = todayIsoDate();
     const status = calcularStatusFatura({ ...fatura, total }, hoje);
 
     await db.execute(
@@ -126,22 +155,67 @@ export async function sincronizarFaturaCartao(
   });
 }
 
+const syncPorConta = new Map<number, Promise<void>>();
+
 export async function sincronizarFaturasCartaoConta(contaId: number): Promise<void> {
+  const emAndamento = syncPorConta.get(contaId);
+  if (emAndamento) {
+    await emAndamento;
+    return;
+  }
+
+  const run = (async () => {
+    const conta = await getConta(contaId);
+    if (!conta?.dia_fechamento) return;
+
+    const mesAtualRef = mesFechamentoAtual(conta.dia_fechamento);
+    const [y, m] = mesAtualRef.split("-").map(Number);
+
+    // Só o ciclo atual e os 2 anteriores. Faturas futuras nascem ao lançar a compra.
+    const meses: string[] = [];
+    for (let i = -2; i <= 0; i++) {
+      const d = new Date(y, m - 1 + i, 1);
+      meses.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+
+    for (const mes of meses) {
+      await sincronizarFaturaCartao(contaId, mes);
+    }
+    await limparFaturasVaziasConta(contaId, mesAtualRef);
+  })().finally(() => {
+    if (syncPorConta.get(contaId) === run) syncPorConta.delete(contaId);
+  });
+
+  syncPorConta.set(contaId, run);
+  await run;
+}
+
+/** Remove faturas sem compras e sem pagamento, exceto o ciclo aberto atual. */
+export async function limparFaturasVaziasConta(
+  contaId: number,
+  mesAtualRef?: string,
+): Promise<void> {
   const conta = await getConta(contaId);
   if (!conta?.dia_fechamento) return;
+  const atual = mesAtualRef ?? mesFechamentoAtual(conta.dia_fechamento);
 
-  const mesAtualRef = mesFechamentoAtual(conta.dia_fechamento);
-  const [y, m] = mesAtualRef.split("-").map(Number);
-
-  const meses: string[] = [];
-  for (let i = -2; i <= 1; i++) {
-    const d = new Date(y, m - 1 + i, 1);
-    meses.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  }
-
-  for (const mes of meses) {
-    await sincronizarFaturaCartao(contaId, mes);
-  }
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    await db.execute(
+      `DELETE FROM faturas_cartao
+       WHERE conta_id = $1
+         AND mes_referencia != $2
+         AND (valor_pago IS NULL OR valor_pago = 0)
+         AND transacao_pagamento_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM transacoes t WHERE t.fatura_cartao_id = faturas_cartao.id
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM transacoes t WHERE t.pagamento_fatura_id = faturas_cartao.id
+         )`,
+      [contaId, atual],
+    );
+  });
 }
 
 async function buildFaturaResumo(faturaId: number): Promise<FaturaCartaoResumo | null> {
@@ -155,16 +229,28 @@ async function buildFaturaResumo(faturaId: number): Promise<FaturaCartaoResumo |
 
     const conta = await getConta(fatura.conta_id);
     const itens = await db.select<
-      { id: number; data: string; descricao: string; valor: number }[]
+      {
+        id: number;
+        data: string;
+        descricao: string;
+        valor: number;
+        categoria_id: number | null;
+        categoria_nome: string | null;
+        parcela_numero: number | null;
+        parcela_total: number | null;
+        compra_parcelada_id: string | null;
+      }[]
     >(
-      `SELECT id, data, descricao, valor
-       FROM transacoes
-       WHERE fatura_cartao_id = $1 AND tipo = 'despesa'
-       ORDER BY data ASC, id ASC`,
+      `SELECT t.id, t.data, t.descricao, t.valor, t.categoria_id, c.nome AS categoria_nome,
+              t.parcela_numero, t.parcela_total, t.compra_parcelada_id
+       FROM transacoes t
+       LEFT JOIN categorias c ON c.id = t.categoria_id
+       WHERE t.fatura_cartao_id = $1 AND t.tipo = 'despesa'
+       ORDER BY t.data ASC, t.id ASC`,
       [faturaId],
     );
 
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = todayIsoDate();
     const status = calcularStatusFatura(fatura, hoje);
 
     return {
@@ -192,9 +278,13 @@ export async function getFaturaCartao(
   if (!conta || conta.tipo !== "cartao_credito") return null;
   if (!conta.dia_fechamento || !conta.dia_vencimento) return null;
 
-  const mes = mesReferencia ?? mesFechamentoAtual(conta.dia_fechamento);
+  const mesAtualRef = mesFechamentoAtual(conta.dia_fechamento);
+  const mes = mesReferencia ?? mesAtualRef;
 
-  await sincronizarFaturaCartao(contaId, mes);
+  if (mes <= mesAtualRef) {
+    await sincronizarFaturaCartao(contaId, mes);
+  }
+
   const db = await getDatabase();
   const rows = await db.select<FaturaRow[]>(
     "SELECT id FROM faturas_cartao WHERE conta_id = $1 AND mes_referencia = $2",
@@ -207,8 +297,11 @@ export async function getFaturaCartao(
 export async function listFaturasCartao(
   contaId: number,
   limite = 6,
+  opts?: { sincronizar?: boolean },
 ): Promise<FaturaCartaoResumo[]> {
-  await sincronizarFaturasCartaoConta(contaId);
+  if (opts?.sincronizar !== false) {
+    await sincronizarFaturasCartaoConta(contaId);
+  }
   return withDatabase(async () => {
     const db = await getDatabase();
     const rows = await db.select<{ id: number }[]>(
@@ -238,6 +331,43 @@ export async function listFaturasCartaoContexto(
   return faturas;
 }
 
+function faturaEntraNoPeriodo(
+  f: FaturaCartaoResumo,
+  dataInicio: string,
+  dataFim: string,
+): boolean {
+  if (f.vencimento >= dataInicio && f.vencimento <= dataFim) return true;
+  if (f.periodo_fim >= dataInicio && f.periodo_fim <= dataFim) return true;
+  return (
+    f.status === "aberta" &&
+    f.periodo_inicio <= dataFim &&
+    f.periodo_fim >= dataInicio
+  );
+}
+
+/** Faturas com valor para a aba Lançamentos (uma linha por fatura, sem as compras). */
+export async function listFaturasParaLancamentos(
+  dataInicio: string,
+  dataFim: string,
+  contexto?: ContextoVisualizacao,
+): Promise<{ fatura: FaturaCartaoResumo; contexto: Contexto }[]> {
+  const contas = await listContas(contexto);
+  const cartoes = contas.filter(
+    (c) => c.tipo === "cartao_credito" && c.dia_fechamento && c.dia_vencimento,
+  );
+  const resultado: { fatura: FaturaCartaoResumo; contexto: Contexto }[] = [];
+  for (const c of cartoes) {
+    await sincronizarFaturasCartaoConta(c.id);
+    const lista = await listFaturasCartao(c.id, 24, { sincronizar: false });
+    for (const f of lista) {
+      if (f.total <= 0) continue;
+      if (!faturaEntraNoPeriodo(f, dataInicio, dataFim)) continue;
+      resultado.push({ fatura: f, contexto: c.contexto });
+    }
+  }
+  return resultado;
+}
+
 /** Faturas não pagas (para fluxo de caixa projetado). */
 export async function listFaturasPendentesContexto(
   contexto?: ContextoVisualizacao,
@@ -249,7 +379,7 @@ export async function listFaturasPendentesContexto(
   const faturas: FaturaCartaoResumo[] = [];
   for (const c of cartoes) {
     await sincronizarFaturasCartaoConta(c.id);
-    const lista = await listFaturasCartao(c.id, 12);
+    const lista = await listFaturasCartao(c.id, 12, { sincronizar: false });
     for (const f of lista) {
       const pendente = f.total - (f.valor_pago ?? 0);
       if (f.status !== "paga" && pendente > 0) faturas.push(f);
@@ -281,6 +411,13 @@ export async function vincularCompraAFatura(
     transacaoId,
   ]);
   await recalcularTotalFatura(db, rows[0].id);
+}
+
+export async function recalcularFaturaPorId(faturaId: number): Promise<void> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    await recalcularTotalFatura(db, faturaId);
+  });
 }
 
 export interface PagarFaturaInput {

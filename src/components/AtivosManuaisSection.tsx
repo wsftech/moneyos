@@ -8,7 +8,7 @@ import { ContextoBadge } from "./ContextoSelector";
 import { useConfirm } from "./ConfirmDialog";
 import { Button } from "./ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner } from "./ui/Feedback";
-import { Input, Textarea } from "./ui/FormFields";
+import { Input, Textarea, ValorInput } from "./ui/FormFields";
 import { Modal } from "./ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
 import {
@@ -232,10 +232,8 @@ function AtivoModal({
           placeholder="Ex.: Apartamento, carro, terreno"
           required
         />
-        <Input
+        <ValorInput
           label="Valor estimado"
-          type="number"
-          step="0.01"
           min="0"
           value={valor}
           onChange={(e) => setValor(e.target.value)}

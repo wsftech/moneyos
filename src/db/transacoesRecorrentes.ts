@@ -42,6 +42,18 @@ function mapRecorrente(row: RecorrenteRow): TransacaoRecorrente {
   return { ...row, ativo: toBoolean(row.ativo) };
 }
 
+async function aposSalvarRecorrente(item: TransacaoRecorrente): Promise<void> {
+  const { mesAtual } = await import("../utils/format");
+  const mes = mesAtual();
+  if (item.categoria_id != null) {
+    const { getCategoria } = await import("./categorias");
+    const { garantirOrcamentoCategoriaMes } = await import("./orcamentos");
+    const cat = await getCategoria(item.categoria_id);
+    if (cat) await garantirOrcamentoCategoriaMes(cat, mes);
+  }
+  // Não efetiva sozinho: o valor só entra no caixa quando o usuário confirmar.
+}
+
 function dataLancamentoRecorrente(mesReferencia: string, diaMes: number): string {
   const { fim } = intervaloDoMes(mesReferencia);
   const ultimoDia = Number(fim.slice(8, 10));
@@ -63,14 +75,27 @@ function mesCriacaoRecorrente(createdAt: string): string {
   return createdAt.slice(0, 7);
 }
 
-/** Pode gerar lançamento efetivado deste recorrente neste mês? */
+/** Pode confirmar o lançamento deste recorrente neste mês? (mês atual, a partir da criação) */
+export function podeConfirmarRecorrenteNoMes(
+  rec: Pick<TransacaoRecorrente, "created_at" | "dia_mes" | "ativo">,
+  mesReferencia: string,
+  jaGerado: boolean,
+  hoje = hojeIsoLocal(),
+): boolean {
+  if (!rec.ativo || jaGerado) return false;
+  const mesAtual = hoje.slice(0, 7);
+  if (mesReferencia !== mesAtual) return false;
+  if (mesReferencia < mesCriacaoRecorrente(rec.created_at)) return false;
+  return true;
+}
+
+/** @deprecated Preferir confirmarLancamentoRecorrente — não gera mais sozinho. */
 export function podeGerarRecorrenteNoMes(
   rec: Pick<TransacaoRecorrente, "created_at" | "dia_mes">,
   mesReferencia: string,
   hoje = hojeIsoLocal(),
 ): boolean {
   const mesAtual = hoje.slice(0, 7);
-  // Sem backfill de meses passados nem antecipação de meses futuros.
   if (mesReferencia !== mesAtual) return false;
   if (mesReferencia < mesCriacaoRecorrente(rec.created_at)) return false;
   const data = dataLancamentoRecorrente(mesReferencia, rec.dia_mes);
@@ -86,6 +111,45 @@ export function recorrentePendenteNoMes(
   if (jaGerado) return false;
   if (mesReferencia < mesCriacaoRecorrente(rec.created_at)) return false;
   return true;
+}
+
+export async function recorrenteJaLancadoNoMes(
+  recorrenteId: number,
+  mesReferencia: string,
+): Promise<boolean> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<{ recorrente_id: number }[]>(
+      `SELECT recorrente_id FROM transacao_recorrente_lancamentos
+       WHERE recorrente_id = $1 AND mes_referencia = $2`,
+      [recorrenteId, mesReferencia],
+    );
+    return rows.length > 0;
+  });
+}
+
+export async function mapRecorrentesStatusMes(
+  recorrentes: TransacaoRecorrente[],
+  mesReferencia: string,
+): Promise<Map<number, { jaGerado: boolean; diaPassou: boolean }>> {
+  const hoje = hojeIsoLocal();
+  const result = new Map<number, { jaGerado: boolean; diaPassou: boolean }>();
+  await withDatabase(async () => {
+    const db = await getDatabase();
+    for (const rec of recorrentes) {
+      const rows = await db.select<{ recorrente_id: number }[]>(
+        `SELECT recorrente_id FROM transacao_recorrente_lancamentos
+         WHERE recorrente_id = $1 AND mes_referencia = $2`,
+        [rec.id, mesReferencia],
+      );
+      const data = dataLancamentoRecorrente(mesReferencia, rec.dia_mes);
+      result.set(rec.id, {
+        jaGerado: rows.length > 0,
+        diaPassou: data <= hoje,
+      });
+    }
+  });
+  return result;
 }
 
 export async function listTransacoesRecorrentes(
@@ -106,7 +170,7 @@ export async function listTransacoesRecorrentes(
 export async function createTransacaoRecorrente(
   input: TransacaoRecorrenteInput,
 ): Promise<TransacaoRecorrente> {
-  return withDatabase(async () => {
+  const created = await withDatabase(async () => {
     const db = await getDatabase();
     const ts = nowIso();
     const result = await db.execute(
@@ -135,13 +199,15 @@ export async function createTransacaoRecorrente(
     if (!item) throw new Error("Falha ao criar lançamento recorrente");
     return mapRecorrente(item);
   });
+  await aposSalvarRecorrente(created);
+  return created;
 }
 
 export async function updateTransacaoRecorrente(
   id: number,
   input: Partial<TransacaoRecorrenteInput>,
 ): Promise<TransacaoRecorrente> {
-  return withDatabase(async () => {
+  const item = await withDatabase(async () => {
     const db = await getDatabase();
     const rows = await db.select<RecorrenteRow[]>(
       "SELECT * FROM transacoes_recorrentes WHERE id = $1",
@@ -176,6 +242,8 @@ export async function updateTransacaoRecorrente(
     if (!updated[0]) throw new Error("Falha ao atualizar lançamento recorrente");
     return mapRecorrente(updated[0]);
   });
+  await aposSalvarRecorrente(item);
+  return item;
 }
 
 export async function deleteTransacaoRecorrente(id: number): Promise<void> {
@@ -186,59 +254,96 @@ export async function deleteTransacaoRecorrente(id: number): Promise<void> {
 }
 
 /**
- * Gera transações efetivadas para recorrentes ativos.
- * Regras:
- * - só no mês corrente (sem backfill de meses anteriores);
- * - só a partir do mês de criação do recorrente;
- * - só depois da data de vencimento (dia_mes) — antes disso fica só como compromisso previsto.
+ * Antes gerava lançamentos sozinho após o dia_mes. Isso inflava o caixa antes do
+ * dinheiro cair. Mantido como no-op para não quebrar chamadas existentes.
+ * Use confirmarLancamentoRecorrente.
  */
 export async function sincronizarTransacoesRecorrentes(
-  mesReferencia: string,
-  contexto?: ContextoVisualizacao,
+  _mesReferencia: string,
+  _contexto?: ContextoVisualizacao,
 ): Promise<number> {
+  return 0;
+}
+
+/**
+ * Confirma o recorrente no mês: cria o lançamento efetivado na conta (entra no caixa).
+ * Só no mês corrente; não duplica se já existir.
+ */
+export async function confirmarLancamentoRecorrente(
+  recorrenteId: number,
+  mesReferencia?: string,
+): Promise<{ gerado: boolean }> {
   const hoje = hojeIsoLocal();
-  const mesAtual = hoje.slice(0, 7);
-  if (mesReferencia !== mesAtual) {
-    return 0;
+  const mes = mesReferencia ?? hoje.slice(0, 7);
+  if (mes !== hoje.slice(0, 7)) {
+    throw new Error("Só é possível confirmar recorrentes no mês atual.");
   }
 
-  const recorrentes = await listTransacoesRecorrentes(contexto);
-  let gerados = 0;
+  const recorrentes = await listTransacoesRecorrentes();
+  const rec = recorrentes.find((r) => r.id === recorrenteId);
+  if (!rec || !rec.ativo) throw new Error("Recorrente não encontrado ou inativo.");
+  if (mes < mesCriacaoRecorrente(rec.created_at)) {
+    throw new Error("Este recorrente ainda não vale para este mês.");
+  }
 
-  for (const rec of recorrentes.filter((r) => r.ativo)) {
-    if (!podeGerarRecorrenteNoMes(rec, mesReferencia, hoje)) continue;
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const exists = await db.select<{ recorrente_id: number }[]>(
+      `SELECT recorrente_id FROM transacao_recorrente_lancamentos
+       WHERE recorrente_id = $1 AND mes_referencia = $2`,
+      [rec.id, mes],
+    );
+    if (exists.length > 0) return { gerado: false };
 
-    await withDatabase(async () => {
-      const db = await getDatabase();
-      const exists = await db.select<{ recorrente_id: number }[]>(
-        "SELECT recorrente_id FROM transacao_recorrente_lancamentos WHERE recorrente_id = $1 AND mes_referencia = $2",
-        [rec.id, mesReferencia],
-      );
-      if (exists.length > 0) return;
-
-      const data = dataLancamentoRecorrente(mesReferencia, rec.dia_mes);
-      const transacao = await createTransacao({
-        descricao: rec.descricao,
-        valor: rec.valor,
-        data,
-        tipo: rec.tipo,
-        conta_id: rec.conta_id,
-        categoria_id: rec.categoria_id,
-        contexto: rec.contexto,
-        status: "efetivado",
-        observacoes: rec.observacoes
-          ? `${rec.observacoes} · Recorrente`
-          : "Lançamento recorrente",
-      });
-
-      await db.execute(
-        `INSERT INTO transacao_recorrente_lancamentos (recorrente_id, mes_referencia, transacao_id)
-         VALUES ($1, $2, $3)`,
-        [rec.id, mesReferencia, transacao.id],
-      );
-      gerados++;
+    const data = dataLancamentoRecorrente(mes, rec.dia_mes);
+    const transacao = await createTransacao({
+      descricao: rec.descricao,
+      valor: rec.valor,
+      data,
+      tipo: rec.tipo,
+      conta_id: rec.conta_id,
+      categoria_id: rec.categoria_id,
+      contexto: rec.contexto,
+      status: "efetivado",
+      observacoes: rec.observacoes
+        ? `${rec.observacoes} · Recorrente`
+        : "Lançamento recorrente",
     });
-  }
 
-  return gerados;
+    await db.execute(
+      `INSERT INTO transacao_recorrente_lancamentos (recorrente_id, mes_referencia, transacao_id)
+       VALUES ($1, $2, $3)`,
+      [rec.id, mes, transacao.id],
+    );
+    return { gerado: true };
+  });
+}
+
+/**
+ * Recorrentes ativos ainda sem lançamento no mês — entram como comprometido no orçamento.
+ */
+export async function getCompromissoRecorrentesMes(
+  categoriaId: number,
+  contexto: Contexto,
+  mesReferencia: string,
+  tipo: "receita" | "despesa" = "despesa",
+): Promise<number> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<{ total: number }[]>(
+      `SELECT COALESCE(SUM(r.valor), 0) as total
+       FROM transacoes_recorrentes r
+       WHERE r.ativo = 1
+         AND r.tipo = $1
+         AND CAST(r.categoria_id AS INTEGER) = CAST($2 AS INTEGER)
+         AND r.contexto = $3
+         AND substr(r.created_at, 1, 7) <= $4
+         AND NOT EXISTS (
+           SELECT 1 FROM transacao_recorrente_lancamentos l
+           WHERE l.recorrente_id = r.id AND l.mes_referencia = $4
+         )`,
+      [tipo, categoriaId, contexto, mesReferencia],
+    );
+    return Number(rows[0]?.total ?? 0);
+  });
 }

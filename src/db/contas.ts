@@ -23,6 +23,7 @@ export interface ContaInput {
   dia_vencimento?: number | null;
   limite_credito?: number | null;
   data_saldo_inicial?: string | null;
+  final_cartao?: string | null;
 }
 
 interface ContaRow {
@@ -39,12 +40,14 @@ interface ContaRow {
   dia_vencimento: number | null;
   limite_credito: number | null;
   data_saldo_inicial: string | null;
+  final_cartao: string | null;
 }
 
 function mapConta(row: ContaRow): Conta {
   return {
     ...row,
     logo_path: row.logo_path ?? null,
+    final_cartao: row.final_cartao ?? null,
     ativo: toBoolean(row.ativo),
   };
 }
@@ -74,8 +77,8 @@ export async function createConta(input: ContaInput): Promise<Conta> {
   return withDatabase(async () => {
     const db = await getDatabase();
     const result = await db.execute(
-      `INSERT INTO contas (nome, tipo, contexto, saldo_inicial, cor, icone, logo_path, ativo, dia_fechamento, dia_vencimento, limite_credito, data_saldo_inicial)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      `INSERT INTO contas (nome, tipo, contexto, saldo_inicial, cor, icone, logo_path, ativo, dia_fechamento, dia_vencimento, limite_credito, data_saldo_inicial, final_cartao)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         input.nome,
         input.tipo,
@@ -89,6 +92,7 @@ export async function createConta(input: ContaInput): Promise<Conta> {
         input.dia_vencimento ?? null,
         input.limite_credito ?? null,
         input.data_saldo_inicial ?? null,
+        input.final_cartao ?? null,
       ],
     );
     const conta = await getConta(result.lastInsertId as number);
@@ -110,8 +114,8 @@ export async function updateConta(id: number, input: Partial<ContaInput>): Promi
     await db.execute(
       `UPDATE contas
        SET nome = $1, tipo = $2, contexto = $3, saldo_inicial = $4, cor = $5, icone = $6, logo_path = $7, ativo = $8,
-           dia_fechamento = $9, dia_vencimento = $10, limite_credito = $11, data_saldo_inicial = $12
-       WHERE id = $13`,
+           dia_fechamento = $9, dia_vencimento = $10, limite_credito = $11, data_saldo_inicial = $12, final_cartao = $13
+       WHERE id = $14`,
       [
         input.nome ?? existing.nome,
         input.tipo ?? existing.tipo,
@@ -125,6 +129,7 @@ export async function updateConta(id: number, input: Partial<ContaInput>): Promi
         input.dia_vencimento !== undefined ? input.dia_vencimento : existing.dia_vencimento,
         input.limite_credito !== undefined ? input.limite_credito : existing.limite_credito,
         input.data_saldo_inicial !== undefined ? input.data_saldo_inicial : existing.data_saldo_inicial,
+        input.final_cartao !== undefined ? input.final_cartao : existing.final_cartao,
         id,
       ],
     );

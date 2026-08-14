@@ -212,6 +212,16 @@ export async function getTransacao(id: number): Promise<Transacao | null> {
 export async function createTransacao(input: TransacaoInput): Promise<Transacao> {
   return withDatabase(async () => {
     let categoriaId = input.categoria_id;
+    const contaNova = await getConta(input.conta_id);
+    if (
+      categoriaId == null &&
+      input.tipo === "despesa" &&
+      contaNova?.tipo === "cartao_credito"
+    ) {
+      const { findCategoriaCartoesCreditoNaLista, listCategorias } = await import("./categorias");
+      const cats = await listCategorias(input.contexto);
+      categoriaId = findCategoriaCartoesCreditoNaLista(cats, input.contexto)?.id ?? null;
+    }
     if (
       categoriaId == null &&
       input.tipo !== "transferencia" &&
@@ -241,6 +251,15 @@ export async function createTransacao(input: TransacaoInput): Promise<Transacao>
       await setTagsTransacao(transacao.id, input.tag_ids);
     }
 
+    if (transacao.categoria_id != null && transacao.tipo !== "transferencia") {
+      const { getCategoria } = await import("./categorias");
+      const { garantirOrcamentoCategoriaMes } = await import("./orcamentos");
+      const cat = await getCategoria(transacao.categoria_id);
+      if (cat) {
+        await garantirOrcamentoCategoriaMes(cat, transacao.data.slice(0, 7));
+      }
+    }
+
     return transacao;
   });
 }
@@ -248,15 +267,28 @@ export async function createTransacao(input: TransacaoInput): Promise<Transacao>
 /**
  * Cria N despesas no cartão, uma por fatura/mês, agrupadas por compra_parcelada_id.
  * Cada parcela é vinculada automaticamente à fatura do ciclo correspondente.
+ * `parcelas_ja_pagas`: primeiras parcelas já cobradas — não são criadas de novo;
+ * as restantes mantêm numeração (ex.: 5/10) e datas a partir do mês correspondente.
  */
 export async function createCompraParceladaCartao(
   input: Omit<TransacaoInput, "tipo" | "parcela_numero" | "parcela_total" | "compra_parcelada_id"> & {
     parcelas: number;
+    /** Quantas primeiras parcelas já entraram na fatura (0 = compra nova). */
+    parcelas_ja_pagas?: number;
   },
 ): Promise<Transacao[]> {
   const n = Math.floor(input.parcelas);
   if (n < 2 || n > 48) {
     throw new DatabaseError("Informe entre 2 e 48 parcelas");
+  }
+
+  const jaPagas = Math.floor(input.parcelas_ja_pagas ?? 0);
+  if (jaPagas < 0 || jaPagas >= n) {
+    throw new DatabaseError(
+      jaPagas >= n
+        ? "Parcelas já pagas deve ser menor que o total (deixe ao menos 1 em aberto)."
+        : "Informe um número válido de parcelas já pagas.",
+    );
   }
 
   const conta = await getConta(input.conta_id);
@@ -272,17 +304,30 @@ export async function createCompraParceladaCartao(
       ? crypto.randomUUID()
       : `parc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+  const {
+    parcelas: _parcelas,
+    parcelas_ja_pagas: _jaPagas,
+    ...baseInput
+  } = input as typeof input & { parcelas: number; parcelas_ja_pagas?: number };
+
+  const dataCompra = baseInput.data;
   const criadas: Transacao[] = [];
-  for (let i = 0; i < n; i++) {
-    const dataParcela = addMonths(input.data, i);
+  for (let indice = jaPagas; indice < n; indice++) {
+    // Parcela 1 = data da compra; parcela N = + (N-1) meses — inclusive com já pagas.
+    const numero = indice + 1;
+    const dataParcela = addMonths(dataCompra, indice);
+    if (indice > 0 && dataParcela === dataCompra) {
+      throw new DatabaseError("Falha ao calcular a data da parcela.");
+    }
     const created = await createTransacao({
-      ...input,
+      ...baseInput,
       tipo: "despesa",
-      valor: valores[i],
+      valor: valores[indice],
       data: dataParcela,
-      descricao: `${input.descricao} (${i + 1}/${n})`,
+      descricao: `${baseInput.descricao} (${numero}/${n})`,
+      categoria_id: baseInput.categoria_id ?? null,
       compra_parcelada_id: groupId,
-      parcela_numero: i + 1,
+      parcela_numero: numero,
       parcela_total: n,
     });
     criadas.push(created);
@@ -466,6 +511,19 @@ export async function updateTransacao(
 
     await applyUpdate(id, input);
 
+    if (
+      existing.compra_parcelada_id &&
+      input.categoria_id !== undefined &&
+      input.categoria_id != null
+    ) {
+      await db.execute(
+        `UPDATE transacoes
+         SET categoria_id = $1, updated_at = $2
+         WHERE compra_parcelada_id = $3`,
+        [input.categoria_id, timestamp, existing.compra_parcelada_id],
+      );
+    }
+
     if (par) {
       await applyUpdate(par.id, {
         descricao: input.descricao ?? existing.descricao,
@@ -483,6 +541,19 @@ export async function updateTransacao(
     if (input.tag_ids !== undefined) {
       await setTagsTransacao(id, input.tag_ids);
     }
+
+    const conta = await getConta(transacao.conta_id);
+    if (transacao.tipo === "despesa" && conta?.tipo === "cartao_credito") {
+      const { vincularCompraAFatura, recalcularFaturaPorId } = await import("./faturasCartao");
+      await vincularCompraAFatura(transacao.id, transacao.conta_id, transacao.data);
+      if (
+        existing.fatura_cartao_id &&
+        existing.fatura_cartao_id !== transacao.fatura_cartao_id
+      ) {
+        await recalcularFaturaPorId(existing.fatura_cartao_id);
+      }
+    }
+
     return transacao;
   });
 }
@@ -506,6 +577,9 @@ export async function deleteTransacao(id: number): Promise<void> {
     const idsToDelete = par
       ? [transacao.id, par.id].sort((a, b) => a - b)
       : [transacao.id];
+    const faturaIds = new Set<number>();
+    if (transacao.fatura_cartao_id) faturaIds.add(transacao.fatura_cartao_id);
+    if (par?.fatura_cartao_id) faturaIds.add(par.fatura_cartao_id);
 
     for (const t of [transacao, par]) {
       if (t?.anexo_path) {
@@ -527,7 +601,84 @@ export async function deleteTransacao(id: number): Promise<void> {
       await db.execute("UPDATE transacoes SET transacao_vinculada_id = NULL WHERE transacao_vinculada_id = $1", [txnId]);
       await db.execute("DELETE FROM transacoes WHERE id = $1", [txnId]);
     }
+
+    if (faturaIds.size > 0) {
+      const { recalcularFaturaPorId, limparFaturasVaziasConta } = await import("./faturasCartao");
+      for (const faturaId of faturaIds) {
+        await recalcularFaturaPorId(faturaId);
+      }
+      const contasCartao = new Set<number>();
+      if (transacao) contasCartao.add(transacao.conta_id);
+      if (par) contasCartao.add(par.conta_id);
+      for (const contaId of contasCartao) {
+        await limparFaturasVaziasConta(contaId);
+      }
+    }
   });
+}
+
+export async function listParcelasCompraCartao(groupId: string): Promise<Transacao[]> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<TransacaoRow[]>(
+      `SELECT * FROM transacoes WHERE compra_parcelada_id = $1 ORDER BY parcela_numero ASC, id ASC`,
+      [groupId],
+    );
+    return rows.map(mapTransacao);
+  });
+}
+
+/**
+ * Compras no cartão sem categoria (e parcelas irmãs) passam a usar
+ * “Cartões de crédito”, para o envelope do orçamento ser consumido.
+ */
+export async function backfillCategoriasComprasCartao(): Promise<void> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const grupos = await db.select<{ compra_parcelada_id: string; categoria_id: number }[]>(
+      `SELECT compra_parcelada_id, categoria_id
+       FROM transacoes
+       WHERE compra_parcelada_id IS NOT NULL AND categoria_id IS NOT NULL
+       ORDER BY parcela_numero DESC, id DESC`,
+    );
+    const catPorGrupo = new Map<string, number>();
+    for (const g of grupos) {
+      if (!catPorGrupo.has(g.compra_parcelada_id)) {
+        catPorGrupo.set(g.compra_parcelada_id, g.categoria_id);
+      }
+    }
+    for (const [groupId, categoriaId] of catPorGrupo) {
+      await db.execute(
+        `UPDATE transacoes
+         SET categoria_id = $1
+         WHERE compra_parcelada_id = $2 AND categoria_id IS NULL`,
+        [categoriaId, groupId],
+      );
+    }
+
+    const { findCategoriaCartoesCreditoNaLista, listCategorias } = await import("./categorias");
+    for (const ctx of ["pessoal", "empresa"] as const) {
+      const cats = await listCategorias(ctx);
+      const padrao = findCategoriaCartoesCreditoNaLista(cats, ctx);
+      if (!padrao) continue;
+      await db.execute(
+        `UPDATE transacoes
+         SET categoria_id = $1
+         WHERE categoria_id IS NULL
+           AND tipo = 'despesa'
+           AND contexto = $2
+           AND conta_id IN (SELECT id FROM contas WHERE tipo = 'cartao_credito')`,
+        [padrao.id, ctx],
+      );
+    }
+  });
+}
+
+export async function deleteCompraParceladaCartao(groupId: string): Promise<void> {
+  const parcelas = await listParcelasCompraCartao(groupId);
+  for (const parcela of parcelas) {
+    await deleteTransacao(parcela.id);
+  }
 }
 
 export async function getResumoMensal(

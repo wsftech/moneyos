@@ -21,6 +21,27 @@ export type TipoContaPagarReceber = "pagar" | "receber";
 
 export type StatusContaPagarReceber = "pendente" | "pago" | "atrasado";
 
+export type StatusImposto = StatusContaPagarReceber;
+
+export interface Imposto {
+  id: number;
+  /** Código do tributo (das, fgts, …) — ver TIPOS_TRIBUTO */
+  tipo_tributo: string;
+  descricao: string;
+  valor: number;
+  /** Mês de competência YYYY-MM */
+  competencia: string;
+  vencimento: string;
+  contexto: Contexto;
+  status: StatusImposto;
+  categoria_id: number | null;
+  transacao_id: number | null;
+  codigo_guia: string | null;
+  observacoes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Conta {
   id: number;
   nome: string;
@@ -38,6 +59,8 @@ export interface Conta {
   dia_vencimento: number | null;
   /** Limite de crédito (só cartão) */
   limite_credito: number | null;
+  /** Últimos dígitos para identificar o cartão (ex.: 1234) */
+  final_cartao: string | null;
   /** Data a partir da qual o saldo_inicial é válido (YYYY-MM-DD) */
   data_saldo_inicial: string | null;
 }
@@ -152,6 +175,7 @@ export interface Configuracao {
 
 export type StatusParcelaFinanciamento = "pendente" | "paga" | "atrasada";
 export type StatusParcelaEmprestimo = StatusParcelaFinanciamento;
+export type ModalidadeEmprestimo = "emprestimo" | "parcelamento";
 
 export interface Financiamento {
   id: number;
@@ -165,6 +189,8 @@ export interface Financiamento {
   data_primeira_parcela: string;
   ativo: boolean;
   observacoes: string | null;
+  faixa_inicial_qtd: number | null;
+  faixa_inicial_valor: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -205,6 +231,9 @@ export interface Emprestimo {
   data_primeira_parcela: string;
   ativo: boolean;
   observacoes: string | null;
+  modalidade: ModalidadeEmprestimo;
+  faixa_inicial_qtd: number | null;
+  faixa_inicial_valor: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -286,7 +315,11 @@ export interface FluxoProjetado12Meses {
   saldo_final_12m: number;
 }
 
-export type TipoItemEndividamento = "financiamento" | "emprestimo" | "fatura_cartao";
+export type TipoItemEndividamento =
+  | "financiamento"
+  | "emprestimo"
+  | "parcelamento"
+  | "fatura_cartao";
 
 export interface ItemEndividamento {
   id: number;
@@ -331,7 +364,17 @@ export interface FaturaCartaoResumo {
   valor_pago?: number | null;
   data_pagamento?: string | null;
   status?: StatusFaturaCartao;
-  itens: { id: number; data: string; descricao: string; valor: number }[];
+  itens: {
+    id: number;
+    data: string;
+    descricao: string;
+    valor: number;
+    categoria_id: number | null;
+    categoria_nome: string | null;
+    parcela_numero: number | null;
+    parcela_total: number | null;
+    compra_parcelada_id: string | null;
+  }[];
 }
 
 export type StatusFaturaCartao = "aberta" | "fechada" | "paga";

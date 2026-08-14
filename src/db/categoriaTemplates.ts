@@ -1,4 +1,9 @@
-import { createCategoria, listCategorias } from "./categorias";
+import {
+  chaveNomeCategoriaDivida,
+  createCategoria,
+  isNomeCategoriaCartoesCredito,
+  listCategorias,
+} from "./categorias";
 import type { ContextoVisualizacao } from "../types";
 
 export type TemplateCategoriaGrupo = "pessoal_basico" | "empresa_basico";
@@ -15,8 +20,10 @@ const TEMPLATES: Record<
     { nome: "Transporte", tipo: "despesa", contexto: "pessoal", cor: "#a78bfa" },
     { nome: "Saúde", tipo: "despesa", contexto: "pessoal", cor: "#fb7185" },
     { nome: "Lazer", tipo: "despesa", contexto: "pessoal", cor: "#fbbf24" },
-    { nome: "Financiamento", tipo: "despesa", contexto: "pessoal", cor: "#64748b" },
-    { nome: "Empréstimo", tipo: "despesa", contexto: "pessoal", cor: "#78716c" },
+    { nome: "Financiamentos", tipo: "despesa", contexto: "pessoal", cor: "#64748b" },
+    { nome: "Empréstimos", tipo: "despesa", contexto: "pessoal", cor: "#78716c" },
+    { nome: "Parcelamentos", tipo: "despesa", contexto: "pessoal", cor: "#a16207" },
+    { nome: "Cartões de crédito", tipo: "despesa", contexto: "pessoal", cor: "#0ea5e9" },
   ],
   empresa_basico: [
     { nome: "Vendas", tipo: "receita", contexto: "empresa", cor: "#34d399" },
@@ -26,8 +33,10 @@ const TEMPLATES: Record<
     { nome: "Impostos", tipo: "despesa", contexto: "empresa", cor: "#ef4444" },
     { nome: "Marketing", tipo: "despesa", contexto: "empresa", cor: "#a78bfa" },
     { nome: "Infraestrutura", tipo: "despesa", contexto: "empresa", cor: "#94a3b8" },
-    { nome: "Financiamento", tipo: "despesa", contexto: "empresa", cor: "#64748b" },
-    { nome: "Empréstimo", tipo: "despesa", contexto: "empresa", cor: "#78716c" },
+    { nome: "Financiamentos", tipo: "despesa", contexto: "empresa", cor: "#64748b" },
+    { nome: "Empréstimos", tipo: "despesa", contexto: "empresa", cor: "#78716c" },
+    { nome: "Parcelamentos", tipo: "despesa", contexto: "empresa", cor: "#a16207" },
+    { nome: "Cartões de crédito", tipo: "despesa", contexto: "empresa", cor: "#0ea5e9" },
   ],
 };
 
@@ -38,12 +47,32 @@ export function listTemplatesDisponiveis(): { id: TemplateCategoriaGrupo; label:
   ];
 }
 
+function jaExisteEquivalente(
+  existentes: Awaited<ReturnType<typeof listCategorias>>,
+  item: (typeof TEMPLATES)[TemplateCategoriaGrupo][number],
+): boolean {
+  const ctx = item.contexto === "ambos" ? "ambos" : item.contexto;
+  const chaveNova = chaveNomeCategoriaDivida(item.nome);
+  const ehDivida =
+    chaveNova === "financiamento" || chaveNova === "emprestimo" || chaveNova === "parcelamento";
+
+  return existentes.some((c) => {
+    if (c.tipo !== item.tipo) return false;
+    if (c.contexto !== ctx && !(ctx !== "ambos" && c.contexto === "ambos")) return false;
+    if (c.nome.toLowerCase() === item.nome.toLowerCase()) return true;
+    if (ehDivida && chaveNomeCategoriaDivida(c.nome) === chaveNova) return true;
+    if (isNomeCategoriaCartoesCredito(item.nome) && isNomeCategoriaCartoesCredito(c.nome)) {
+      return true;
+    }
+    return false;
+  });
+}
+
 export async function importarTemplateCategorias(
   grupo: TemplateCategoriaGrupo,
   contexto?: ContextoVisualizacao,
 ): Promise<{ criadas: number; ignoradas: number }> {
   const existentes = await listCategorias("consolidado");
-  const nomesExistentes = new Set(existentes.map((c) => `${c.nome.toLowerCase()}|${c.tipo}|${c.contexto}`));
 
   let criadas = 0;
   let ignoradas = 0;
@@ -55,19 +84,18 @@ export async function importarTemplateCategorias(
         continue;
       }
     }
-    const ctx = item.contexto === "ambos" ? "ambos" : item.contexto;
-    const key = `${item.nome.toLowerCase()}|${item.tipo}|${ctx}`;
-    if (nomesExistentes.has(key)) {
+    if (jaExisteEquivalente(existentes, item)) {
       ignoradas++;
       continue;
     }
-    await createCategoria({
+    const ctx = item.contexto === "ambos" ? "ambos" : item.contexto;
+    const created = await createCategoria({
       nome: item.nome,
       tipo: item.tipo,
       contexto: ctx,
       cor: item.cor,
     });
-    nomesExistentes.add(key);
+    existentes.push(created);
     criadas++;
   }
 

@@ -2,6 +2,7 @@ import { getDatabase } from "./connection";
 import { sincronizarStatusContasPagarReceber } from "./contasPagarReceber";
 import { sincronizarStatusParcelas as sincronizarFinanciamentos } from "./financiamentos";
 import { sincronizarStatusParcelas as sincronizarEmprestimos } from "./emprestimos";
+import { listImpostosAbertos, sincronizarStatusImpostos } from "./impostos";
 import { listContas } from "./contas";
 import { listFaturasPendentesContexto } from "./faturasCartao";
 import { applyContextoFilter, buildContextoFilter, withDatabase } from "./utils";
@@ -9,16 +10,19 @@ import type {
   Contexto,
   ContextoVisualizacao,
   FaturaCartaoResumo,
+  Imposto,
   TipoContaPagarReceber,
 } from "../types";
 import { arredondarMoeda } from "../utils/format";
 import { addDays } from "../utils/dates";
+import { labelTipoTributo } from "../constants/tiposImposto";
 
 export type OrigemProximoVencimento =
   | "conta"
   | "financiamento"
   | "emprestimo"
-  | "fatura_cartao";
+  | "fatura_cartao"
+  | "imposto";
 
 export interface ProximoVencimentoUnificado {
   chave: string;
@@ -53,6 +57,7 @@ interface ParcelaContratoRow {
   status: "pendente" | "atrasada" | "paga";
   numero_parcela: number;
   total_parcelas: number;
+  modalidade?: string | null;
 }
 
 function hojeIso(): string {
@@ -94,8 +99,9 @@ function mapParcelaFinanciamento(row: ParcelaContratoRow): ProximoVencimentoUnif
 }
 
 function mapParcelaEmprestimo(row: ParcelaContratoRow): ProximoVencimentoUnificado {
+  const parcelamento = row.modalidade === "parcelamento";
   return {
-    chave: `emp-${row.contrato_id}-${row.parcela_id}`,
+    chave: `${parcelamento ? "parc" : "emp"}-${row.contrato_id}-${row.parcela_id}`,
     origem: "emprestimo",
     descricao: row.descricao,
     valor: row.valor_previsto,
@@ -103,7 +109,7 @@ function mapParcelaEmprestimo(row: ParcelaContratoRow): ProximoVencimentoUnifica
     contexto: row.contexto,
     tipo: "pagar",
     status: row.status === "atrasada" ? "atrasada" : "pendente",
-    detalhe: `Empréstimo · parcela ${row.numero_parcela}/${row.total_parcelas}`,
+    detalhe: `${parcelamento ? "Parcelamento" : "Empréstimo"} · parcela ${row.numero_parcela}/${row.total_parcelas}`,
     rota: "/dividas-parceladas",
   };
 }
@@ -124,7 +130,22 @@ function mapFatura(
     tipo: "pagar",
     status: fatura.vencimento < hoje ? "atrasado" : "pendente",
     detalhe: "Fatura de cartão",
-    rota: `/faturas/${fatura.conta_id}`,
+    rota: `/cartoes/${fatura.conta_id}`,
+  };
+}
+
+function mapImposto(row: Imposto): ProximoVencimentoUnificado {
+  return {
+    chave: `imp-${row.id}`,
+    origem: "imposto",
+    descricao: row.descricao,
+    valor: row.valor,
+    vencimento: row.vencimento,
+    contexto: row.contexto,
+    tipo: "pagar",
+    status: row.status === "atrasado" ? "atrasado" : "pendente",
+    detalhe: `Imposto · ${labelTipoTributo(row.tipo_tributo)} · ${row.competencia}`,
+    rota: "/impostos",
   };
 }
 
@@ -141,9 +162,10 @@ async function listTodosVencimentos(
     sincronizarFinanciamentos(),
     sincronizarEmprestimos(),
     sincronizarStatusContasPagarReceber(),
+    sincronizarStatusImpostos(),
   ]);
 
-  const [contasCtx, faturas, rows] = await Promise.all([
+  const [contasCtx, faturas, rows, impostos] = await Promise.all([
     listContas(contexto),
     listFaturasPendentesContexto(contexto),
     withDatabase(async () => {
@@ -169,7 +191,8 @@ async function listTodosVencimentos(
 
       const { query: qEmp, params: pEmp } = applyContextoFilter(
         `SELECT fp.id AS parcela_id, f.id AS contrato_id, f.descricao, fp.valor_previsto,
-                fp.vencimento, f.contexto, fp.status, fp.numero_parcela, f.total_parcelas
+                fp.vencimento, f.contexto, fp.status, fp.numero_parcela, f.total_parcelas,
+                f.modalidade
          FROM emprestimo_parcelas fp
          JOIN emprestimos f ON f.id = fp.emprestimo_id
          WHERE f.ativo = 1 AND fp.status IN ('pendente', 'atrasada')${filterContrato.clause}`,
@@ -188,6 +211,7 @@ async function listTodosVencimentos(
         ...emp.map(mapParcelaEmprestimo),
       ];
     }),
+    listImpostosAbertos(contexto),
   ]);
 
   const contextoPorConta = new Map(contasCtx.map((c) => [c.id, c.contexto]));
@@ -196,7 +220,7 @@ async function listTodosVencimentos(
     mapFatura(f, contextoPorConta.get(f.conta_id) ?? "pessoal", hoje),
   );
 
-  return [...rows, ...faturaItems].sort(
+  return [...rows, ...faturaItems, ...impostos.map(mapImposto)].sort(
     (a, b) => a.vencimento.localeCompare(b.vencimento) || a.descricao.localeCompare(b.descricao),
   );
 }

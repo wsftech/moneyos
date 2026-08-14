@@ -48,7 +48,7 @@ const PASSOS: {
     id: "recorrentes",
     titulo: "Cadastre o que se repete",
     detalhe:
-      "Aluguel, assinaturas, salário — em Recorrentes (menu A vencer); o app lança no dia do vencimento.",
+      "Aluguel, assinaturas, salário — em Recorrentes (menu A vencer); confirme o recebimento/pagamento para entrar no caixa.",
     to: "/transacoes?aba=recorrentes",
     cta: "Abrir Recorrentes",
   },
@@ -133,7 +133,7 @@ const GLOSSARIO: { titulo: string; texto: string; to: string }[] = [
   },
   {
     titulo: "Dívidas",
-    texto: "Financiamentos e empréstimos parcelados — escolha o tipo ao cadastrar.",
+    texto: "Financiamento, empréstimo ou parcelamento (carnê/acordo fora do cartão) — escolha o tipo ao cadastrar.",
     to: "/dividas-parceladas",
   },
   {
@@ -172,7 +172,7 @@ const FAQ: { pergunta: string; resposta: string }[] = [
   {
     pergunta: "Por que o aluguel ainda não apareceu em Lançamentos?",
     resposta:
-      "O recorrente só vira lançamento no mês atual, a partir do dia de vencimento. Antes disso ele entra no resultado “Incluindo o que ainda vence” no Início.",
+      "O recorrente fica como compromisso até você confirmar. Só então vira lançamento e altera o saldo da conta. Antes disso entra no resultado “Incluindo o que ainda vence” no Início.",
   },
   {
     pergunta: "Pessoal e empresa: o que muda?",
@@ -190,9 +190,9 @@ const FAQ: { pergunta: string; resposta: string }[] = [
       "“Já entrou / saiu” (padrão) mostra só o efetivado. “Incluindo o que ainda vence” soma também agenda, parcelas, faturas e recorrentes ainda não gerados.",
   },
   {
-    pergunta: "O que é “disponível para gastar”?",
+    pergunta: "O que significa “você economizou” ou “estourou o orçamento”?",
     resposta:
-      "Em Orçamentos (despesas), é o limite do mês menos o já usado e comprometido. Não é o saldo do banco — é o envelope do mês.",
+      "Em Orçamentos (despesas), cada categoria tem um limite do mês. Se o usado/comprometido ficou abaixo do limite, você economizou; se passou, estourou. Não é o saldo do banco — é o envelope do mês.",
   },
   {
     pergunta: "Preciso cadastrar tudo de uma vez?",

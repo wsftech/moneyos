@@ -5,6 +5,7 @@ import { TitleBar } from "./TitleBar";
 import { ContextoSelector } from "./ContextoSelector";
 import { IconChevronLeft, IconChevronRight, NAV_ICONS } from "./NavIcons";
 import { Button } from "./ui/Button";
+import { COPYRIGHT_COM_CNPJ } from "../constants/empresa";
 import { useContexto } from "../contexts/ContextoContext";
 import { contarAlertasOrcamento } from "../db/alertasOrcamento";
 import { contarVencimentosAtrasados } from "../db/proximosVencimentos";
@@ -23,6 +24,7 @@ const NAV_GROUPS = [
         inactiveSearch: "aba=recorrentes",
       },
       { to: "/contas", label: "Contas", icon: "contas" as const },
+      { to: "/cartoes", label: "Cartões de crédito", icon: "cartoes" as const },
       { to: "/categorias", label: "Categorias", icon: "categorias" as const },
     ],
   },
@@ -35,6 +37,12 @@ const NAV_GROUPS = [
         label: "Agenda",
         icon: "pagarReceber" as const,
         badgeKey: "vencimentos" as const,
+      },
+      {
+        to: "/impostos",
+        label: "Impostos",
+        icon: "impostos" as const,
+        onlyEmpresa: true as const,
       },
       {
         to: "/transacoes?aba=recorrentes",
@@ -74,8 +82,11 @@ function iniciaisUsuario(nome: string): string {
 
 function NovoLancamentoMenu() {
   const navigate = useNavigate();
+  const { contexto, escopo } = useContexto();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const mostrarImpostos =
+    escopo !== "pessoal" && (contexto === "empresa" || contexto === "consolidado");
 
   useEffect(() => {
     if (!open) return;
@@ -137,10 +148,28 @@ function NovoLancamentoMenu() {
             type="button"
             role="menuitem"
             className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+            onClick={() => go("/cartoes?compra=1")}
+          >
+            Compra no cartão
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
             onClick={() => go("/dividas-parceladas?nova=1")}
           >
             Dívida parcelada
           </button>
+          {mostrarImpostos && (
+            <button
+              type="button"
+              role="menuitem"
+              className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+              onClick={() => go("/impostos?nova=1")}
+            >
+              Guia de imposto
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -148,12 +177,15 @@ function NovoLancamentoMenu() {
 }
 
 export function Layout() {
-  const { label: contextoLabel, contexto } = useContexto();
+  const { label: contextoLabel, contexto, escopo } = useContexto();
   const { nome: nomeUsuario } = useNomeUsuario();
   const location = useLocation();
   const [expanded, setExpanded] = useState(false);
   const [alertasOrcamento, setAlertasOrcamento] = useState(0);
   const [vencimentosAtrasados, setVencimentosAtrasados] = useState(0);
+
+  const mostrarImpostos =
+    escopo !== "pessoal" && (contexto === "empresa" || contexto === "consolidado");
 
   useEffect(() => {
     void contarAlertasOrcamento(contexto).then(setAlertasOrcamento);
@@ -175,7 +207,7 @@ export function Layout() {
             expanded ? "w-60" : "w-[4.25rem]"
           }`}
         >
-        <nav className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-2 pt-3">
+        <nav className="app-sidebar-scroll flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-2 pt-3">
           {NAV_GROUPS.map((group) => (
             <div key={group.id}>
               {expanded && group.label && (
@@ -184,7 +216,9 @@ export function Layout() {
                 </p>
               )}
               <div className="space-y-0.5">
-                {group.items.map((item) => {
+                {group.items
+                  .filter((item) => !("onlyEmpresa" in item && item.onlyEmpresa) || mostrarImpostos)
+                  .map((item) => {
                   const Icon = NAV_ICONS[item.icon];
                   const badge =
                     "badgeKey" in item && item.badgeKey === "orcamentos" && alertasOrcamento > 0
@@ -275,8 +309,8 @@ export function Layout() {
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className={`absolute z-30 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-md shadow-slate-900/10 transition-[left] duration-300 hover:bg-slate-50 hover:text-app-sidebar ${
-            expanded ? "left-60 top-8" : "left-[4.25rem] top-8"
+          className={`absolute z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-app-sidebar text-slate-300 shadow-md shadow-slate-900/25 transition-[left] duration-300 hover:bg-app-sidebar-hover hover:text-white ${
+            expanded ? "left-[calc(15rem+0.075rem)] top-9" : "left-[calc(4.25rem+0.075rem)] top-9"
           }`}
           title={expanded ? "Recolher menu" : "Expandir menu"}
           aria-label={expanded ? "Recolher menu" : "Expandir menu"}
@@ -299,6 +333,9 @@ export function Layout() {
         </main>
       </div>
       </div>
+      <footer className="shrink-0 border-t border-white/10 bg-app-sidebar px-4 py-2 text-center">
+        <p className="text-[11px] leading-relaxed text-slate-400">{COPYRIGHT_COM_CNPJ}</p>
+      </footer>
     </div>
   );
 }

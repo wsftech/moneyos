@@ -158,12 +158,35 @@ export function IconChevronRight(props: IconProps) {
   );
 }
 
+export function IconCartoes(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+      <path d="M6 15h4" />
+      <path d="M16 15h2" />
+    </IconBase>
+  );
+}
+
 export function IconAprender(props: IconProps) {
   return (
     <IconBase {...props}>
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
       <path d="M10 8h6M10 12h4" />
+    </IconBase>
+  );
+}
+
+export function IconImpostos(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M9 13h6" />
+      <path d="M9 17h4" />
+      <path d="M9 9h1" />
     </IconBase>
   );
 }
@@ -184,4 +207,6 @@ export const NAV_ICONS: Record<string, NavIconComponent> = {
   relatorios: IconRelatorios,
   configuracoes: IconConfiguracoes,
   aprender: IconAprender,
+  cartoes: IconCartoes,
+  impostos: IconImpostos,
 };

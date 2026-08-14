@@ -9,15 +9,25 @@ export interface PagamentoHistoricoRow {
 
 export function gerarPagamentosHistoricosPadrao(
   quantidade: number,
-  valorReferencia: number,
+  valoresPrevistos: number[],
   dataPrimeiraParcela: string,
 ): PagamentoHistoricoRow[] {
   if (quantidade <= 0) return [];
   return Array.from({ length: quantidade }, (_, i) => ({
     numero_parcela: i + 1,
     data: addMonths(dataPrimeiraParcela, i),
-    valor: valorReferencia,
+    valor: valoresPrevistos[i] ?? 0,
   }));
+}
+
+export function validarParcelasJaPagas(quantidade: number, totalParcelas: number): string | null {
+  if (quantidade < 0 || !Number.isFinite(quantidade)) {
+    return "Informe um número válido de parcelas já pagas.";
+  }
+  if (quantidade > totalParcelas) {
+    return `Parcelas já pagas não pode ser maior que ${totalParcelas}.`;
+  }
+  return null;
 }
 
 export function validarPagamentosHistoricos(

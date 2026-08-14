@@ -2,7 +2,7 @@ import { getDatabase } from "./connection";
 import { listFaturasPendentesContexto } from "./faturasCartao";
 import { sincronizarStatusContasPagarReceber } from "./contasPagarReceber";
 import { sincronizarStatusParcelas as sincronizarFinanciamentos } from "./financiamentos";
-import { sincronizarStatusParcelas as sincronizarEmprestimos } from "./emprestimos";
+import { sincronizarStatusParcelas as sincronizarEmprestimos, sincronizarLancamentosParcelamentos } from "./emprestimos";
 import { getResumoMensal } from "./transacoes";
 import {
   listTransacoesRecorrentes,
@@ -221,7 +221,7 @@ export async function listItensCompromissosSaidaAteFimDoMes(
 
     const { query: qEmp, params: pEmp } = applyContextoFilter(
       `SELECT fp.id AS parcela_id, f.id AS contrato_id, f.descricao, fp.valor_previsto AS valor,
-              fp.vencimento, fp.numero_parcela, f.total_parcelas
+              fp.vencimento, fp.numero_parcela, f.total_parcelas, f.modalidade
        FROM emprestimo_parcelas fp
        JOIN emprestimos f ON f.id = fp.emprestimo_id
        WHERE f.ativo = 1 AND fp.status IN ('pendente', 'atrasada')
@@ -256,6 +256,7 @@ export async function listItensCompromissosSaidaAteFimDoMes(
           vencimento: string;
           numero_parcela: number;
           total_parcelas: number;
+          modalidade: string | null;
         }[]
       >(qEmp, [fim, ...pEmp]),
     ]);
@@ -288,7 +289,7 @@ export async function listItensCompromissosSaidaAteFimDoMes(
       out.push({
         origem: "divida",
         descricao: row.descricao,
-        detalhe: `Empréstimo · parcela ${row.numero_parcela}/${row.total_parcelas}`,
+        detalhe: `${row.modalidade === "parcelamento" ? "Parcelamento" : "Empréstimo"} · parcela ${row.numero_parcela}/${row.total_parcelas}`,
         valor: Number(row.valor) || 0,
         vencimento: row.vencimento,
         rota: "/dividas-parceladas",
@@ -309,7 +310,7 @@ export async function listItensCompromissosSaidaAteFimDoMes(
       detalhe: "Cartão de crédito",
       valor: pendente,
       vencimento: f.vencimento,
-      rota: `/faturas/${f.conta_id}`,
+      rota: `/cartoes/${f.conta_id}`,
     });
   }
 
@@ -360,6 +361,7 @@ export async function getResumoMensalEntradasSaidas(
       sincronizarStatusContasPagarReceber(),
       // Recorrentes já vencidos viram lançamento e saem do "em aberto".
       sincronizarTransacoesRecorrentes(mes, contexto),
+      sincronizarLancamentosParcelamentos(contexto),
     ]);
   }
 
@@ -436,6 +438,7 @@ export async function getComparativoMensalEntradasSaidas(
     sincronizarEmprestimos(),
     sincronizarStatusContasPagarReceber(),
     mesSync ? sincronizarTransacoesRecorrentes(mesSync, contexto) : Promise.resolve(0),
+    sincronizarLancamentosParcelamentos(contexto),
   ]);
 
   const resultados: ComparativoMensalEntradasSaidas[] = [];

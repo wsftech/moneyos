@@ -1,5 +1,7 @@
 import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
 
+export { ValorInput } from "./ValorInput";
+
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;

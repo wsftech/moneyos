@@ -4,14 +4,19 @@ import { EmprestimosPage } from "./EmprestimosPage";
 import { FinanciamentosPage } from "./FinanciamentosPage";
 import { PageHeader, LoadingSpinner } from "../components/ui/Feedback";
 import { Button } from "../components/ui/Button";
-import { listEmprestimos, sincronizarStatusParcelas as syncEmp } from "../db/emprestimos";
+import { listEmprestimos, sincronizarLancamentosParcelamentos, sincronizarStatusParcelas as syncEmp } from "../db/emprestimos";
 import { listFinanciamentos, sincronizarStatusParcelas as syncFin } from "../db/financiamentos";
 import { useContexto } from "../contexts/ContextoContext";
 import { formatCurrency, formatDate } from "../utils/format";
 import { ContextoBadge } from "../components/ContextoSelector";
+import {
+  descricaoSubtipoDivida,
+  labelSubtipoDivida,
+  TIPOS_DIVIDA,
+  type SubtipoDivida,
+} from "../constants/tiposDivida";
 
-type AbaDivida = "todos" | "financiamento" | "emprestimo";
-type SubtipoDivida = "financiamento" | "emprestimo";
+type AbaDivida = "todos" | SubtipoDivida;
 
 type ItemDivida = {
   chave: string;
@@ -23,10 +28,6 @@ type ItemDivida = {
   proximo_vencimento: string | null;
 };
 
-function labelSubtipo(tipo: SubtipoDivida): string {
-  return tipo === "financiamento" ? "Financiamento" : "Empréstimo";
-}
-
 export function DividasParceladasPage() {
   const { contexto, loading: ctxLoading } = useContexto();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -35,6 +36,7 @@ export function DividasParceladasPage() {
   const [loadingResumo, setLoadingResumo] = useState(true);
   const [abrirNovoFinanciamento, setAbrirNovoFinanciamento] = useState(false);
   const [abrirNovoEmprestimo, setAbrirNovoEmprestimo] = useState(false);
+  const [abrirNovoParcelamento, setAbrirNovoParcelamento] = useState(false);
   const [escolherSubtipo, setEscolherSubtipo] = useState(false);
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export function DividasParceladasPage() {
     try {
       const { backfillCategoriasDividasSemCategoria } = await import("../db/categorias");
       await backfillCategoriasDividasSemCategoria(contexto);
-      await Promise.all([syncFin(), syncEmp()]);
+      await Promise.all([syncFin(), syncEmp(), sincronizarLancamentosParcelamentos(contexto)]);
       const [fin, emp] = await Promise.all([
         listFinanciamentos(contexto),
         listEmprestimos(contexto),
@@ -64,8 +66,10 @@ export function DividasParceladasPage() {
           proximo_vencimento: f.proximo_vencimento,
         })),
         ...emp.map((e) => ({
-          chave: `emp-${e.id}`,
-          tipo: "emprestimo" as const,
+          chave: `${e.modalidade === "parcelamento" ? "parc" : "emp"}-${e.id}`,
+          tipo: (e.modalidade === "parcelamento"
+            ? "parcelamento"
+            : "emprestimo") as SubtipoDivida,
           descricao: e.descricao,
           contexto: e.contexto,
           valor_restante: e.valor_restante,
@@ -87,16 +91,18 @@ export function DividasParceladasPage() {
     setEscolherSubtipo(false);
     setAba(subtipo);
     if (subtipo === "financiamento") setAbrirNovoFinanciamento(true);
-    else setAbrirNovoEmprestimo(true);
+    else if (subtipo === "emprestimo") setAbrirNovoEmprestimo(true);
+    else setAbrirNovoParcelamento(true);
   }
 
   const totalRestante = resumo.reduce((s, i) => s + i.valor_restante, 0);
+  const dicaAba = aba === "todos" ? null : descricaoSubtipoDivida(aba);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Dívidas"
-        subtitle="Parcelas de financiamento ou empréstimo — escolha o tipo ao cadastrar"
+        subtitle="Financiamento, empréstimo ou parcelamento — escolha o tipo ao cadastrar"
         action={
           <Button type="button" onClick={() => setEscolherSubtipo((v) => !v)}>
             + Nova dívida
@@ -105,14 +111,24 @@ export function DividasParceladasPage() {
       />
 
       {escolherSubtipo && (
-        <div className="app-card flex flex-wrap gap-3 p-4">
-          <p className="w-full text-sm text-slate-600">Qual tipo de dívida parcelada?</p>
-          <Button type="button" onClick={() => iniciarNova("financiamento")}>
-            Financiamento
-          </Button>
-          <Button type="button" variant="secondary" onClick={() => iniciarNova("emprestimo")}>
-            Empréstimo
-          </Button>
+        <div className="app-card space-y-3 p-4">
+          <p className="text-sm font-medium text-slate-800">Qual tipo de dívida parcelada?</p>
+          <p className="text-xs text-slate-500">
+            Compras no cartão de crédito não entram aqui — use Cartões de crédito.
+          </p>
+          <div className="grid gap-3 md:grid-cols-3">
+            {TIPOS_DIVIDA.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className="rounded-xl border border-slate-200 p-4 text-left transition-colors hover:border-indigo-300 hover:bg-slate-50"
+                onClick={() => iniciarNova(t.id)}
+              >
+                <p className="font-semibold text-slate-900">{t.titulo}</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">{t.descricao}</p>
+              </button>
+            ))}
+          </div>
           <Button type="button" variant="secondary" onClick={() => setEscolherSubtipo(false)}>
             Cancelar
           </Button>
@@ -120,23 +136,28 @@ export function DividasParceladasPage() {
       )}
 
       <div className="flex flex-wrap gap-2">
-        {(
-          [
-            ["todos", "Visão geral"],
-            ["financiamento", "Financiamentos"],
-            ["emprestimo", "Empréstimos"],
-          ] as const
-        ).map(([id, label]) => (
+        <Button
+          variant={aba === "todos" ? "primary" : "secondary"}
+          className="py-1.5 text-xs"
+          onClick={() => setAba("todos")}
+        >
+          Visão geral
+        </Button>
+        {TIPOS_DIVIDA.map((t) => (
           <Button
-            key={id}
-            variant={aba === id ? "primary" : "secondary"}
+            key={t.id}
+            variant={aba === t.id ? "primary" : "secondary"}
             className="py-1.5 text-xs"
-            onClick={() => setAba(id)}
+            onClick={() => setAba(t.id)}
           >
-            {label}
+            {t.tituloPlural}
           </Button>
         ))}
       </div>
+
+      {dicaAba && (
+        <p className="text-sm leading-relaxed text-slate-600">{dicaAba}</p>
+      )}
 
       {aba === "todos" && (
         <section className="space-y-4">
@@ -149,8 +170,8 @@ export function DividasParceladasPage() {
             <LoadingSpinner />
           ) : resumo.length === 0 ? (
             <p className="text-sm text-slate-500">
-              Nenhuma dívida parcelada. Cadastre um financiamento ou empréstimo — ambos aparecem
-              aqui com o saldo que ainda falta pagar.
+              Nenhuma dívida parcelada. Cadastre um financiamento, empréstimo ou parcelamento —
+              todos aparecem aqui com o saldo que ainda falta pagar.
             </p>
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
@@ -164,7 +185,7 @@ export function DividasParceladasPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold text-slate-900">{item.descricao}</p>
-                      <p className="text-xs text-slate-500">{labelSubtipo(item.tipo)}</p>
+                      <p className="text-xs text-slate-500">{labelSubtipoDivida(item.tipo)}</p>
                     </div>
                     {contexto === "consolidado" && (
                       <ContextoBadge itemContexto={item.contexto} />
@@ -202,9 +223,19 @@ export function DividasParceladasPage() {
       {aba === "emprestimo" && (
         <EmprestimosPage
           embedded
+          modalidade="emprestimo"
           onChanged={carregarResumo}
           abrirNovo={abrirNovoEmprestimo}
           onAbrirNovoConsumido={() => setAbrirNovoEmprestimo(false)}
+        />
+      )}
+      {aba === "parcelamento" && (
+        <EmprestimosPage
+          embedded
+          modalidade="parcelamento"
+          onChanged={carregarResumo}
+          abrirNovo={abrirNovoParcelamento}
+          onAbrirNovoConsumido={() => setAbrirNovoParcelamento(false)}
         />
       )}
     </div>

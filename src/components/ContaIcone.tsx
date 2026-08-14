@@ -3,10 +3,10 @@ import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   BANCOS_PRESETS,
+  BANDEIRAS_CARTAO,
   ICONES_SUGERIDOS,
   iconeConta,
   isEmojiIcon,
-  type BancoPreset,
 } from "../utils/contaIcone";
 import { resolverLogoPreview } from "../db/logosConta";
 import { getErrorMessage } from "../db/utils";
@@ -85,7 +85,11 @@ type PickerProps = {
   pendingLogoSource: string | null;
   onLogoPathChange: (path: string | null) => void;
   onPendingLogoSourceChange: (path: string | null) => void;
-  onBancoPreset?: (preset: BancoPreset) => void;
+  onBancoPreset?: (preset: { nome: string; cor: string; sigla: string }) => void;
+  /** Só cor/ícone da bandeira — não altera o nome do cartão. */
+  onBandeiraPreset?: (preset: { nome: string; cor: string; sigla: string }) => void;
+  /** Nome atual, para destacar o banco emissor selecionado. */
+  nomeAtual?: string;
   previewCor: string;
 };
 
@@ -98,6 +102,8 @@ export function IconeContaPicker({
   onLogoPathChange,
   onPendingLogoSourceChange,
   onBancoPreset,
+  onBandeiraPreset,
+  nomeAtual,
   previewCor,
 }: PickerProps) {
   const confirm = useConfirm();
@@ -113,7 +119,7 @@ export function IconeContaPicker({
     }
     try {
       const selected = await open({
-        title: "Selecionar logo do banco",
+        title: tipo === "cartao_credito" ? "Selecionar ícone do cartão" : "Selecionar logo do banco",
         filters: LOGO_FILTERS,
         multiple: false,
       });
@@ -159,42 +165,81 @@ export function IconeContaPicker({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-slate-700">Ícone ou logo</p>
           <p className="text-xs text-slate-500">
-            Use um preset de banco, emoji/sigla ou envie o logo oficial.
+            Use um preset de {tipo === "cartao_credito" ? "bandeira" : "banco"}, emoji/sigla ou envie o logo.
           </p>
         </div>
       </div>
 
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-          Bancos sugeridos
+          {tipo === "cartao_credito" ? "Bandeiras" : "Bancos sugeridos"}
         </p>
         <div className="flex flex-wrap gap-2">
-          {BANCOS_PRESETS.map((banco) => (
+          {(tipo === "cartao_credito" ? BANDEIRAS_CARTAO : BANCOS_PRESETS).map((item) => (
             <button
-              key={banco.id}
+              key={item.id}
               type="button"
-              title={banco.nome}
+              title={item.nome}
               onClick={() => {
-                onChange(banco.sigla);
-                onBancoPreset?.(banco);
+                onChange(item.sigla);
+                if (tipo === "cartao_credito") {
+                  onBandeiraPreset?.(item);
+                } else {
+                  onBancoPreset?.(item);
+                }
               }}
               className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                value === banco.sigla && !previewPath
+                value === item.sigla && !previewPath
                   ? "border-teal-500 bg-teal-50 text-teal-900 ring-1 ring-teal-200"
                   : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
               }`}
             >
               <span
                 className="flex h-6 w-6 items-center justify-center rounded-md text-[9px] font-bold text-white"
-                style={{ backgroundColor: banco.cor }}
+                style={{ backgroundColor: item.cor }}
               >
-                {banco.sigla.slice(0, 3)}
+                {item.sigla.slice(0, 4)}
               </span>
-              {banco.nome}
+              {item.nome}
             </button>
           ))}
         </div>
       </div>
+
+      {tipo === "cartao_credito" && (
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+            Banco emissor
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {BANCOS_PRESETS.map((banco) => {
+              const selecionado =
+                (nomeAtual ?? "").trim().toLowerCase() === banco.nome.toLowerCase();
+              return (
+                <button
+                  key={banco.id}
+                  type="button"
+                  title={banco.nome}
+                  onClick={() => onBancoPreset?.(banco)}
+                  className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    selecionado
+                      ? "border-teal-500 bg-teal-50 text-teal-900 ring-1 ring-teal-200"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                  }`}
+                >
+                  <span
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-[9px] font-bold text-white"
+                    style={{ backgroundColor: banco.cor }}
+                  >
+                    {banco.sigla.slice(0, 3)}
+                  </span>
+                  {banco.nome}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Emojis</p>

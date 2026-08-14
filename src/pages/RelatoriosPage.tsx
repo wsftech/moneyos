@@ -257,7 +257,13 @@ export function RelatoriosPage() {
                     <tr key={`${item.tipo}-${item.id}`}>
                       <td className="px-3 py-2 text-slate-700">{item.descricao}</td>
                       <td className="px-3 py-2 capitalize text-slate-400">
-                        {item.tipo === "fatura_cartao" ? "Fatura cartão" : item.tipo}
+                        {item.tipo === "fatura_cartao"
+                          ? "Fatura cartão"
+                          : item.tipo === "financiamento"
+                            ? "Financiamento"
+                            : item.tipo === "parcelamento"
+                              ? "Parcelamento"
+                              : "Empréstimo"}
                       </td>
                       {contexto === "consolidado" && (
                         <td className="px-3 py-2">

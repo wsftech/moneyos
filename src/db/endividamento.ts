@@ -94,7 +94,9 @@ export async function getRelatorioEndividamento(
     })),
     ...emprestimos.map((e) => ({
       id: e.id,
-      tipo: "emprestimo" as const,
+      tipo: (e.modalidade === "parcelamento"
+        ? "parcelamento"
+        : "emprestimo") as ItemEndividamento["tipo"],
       descricao: e.descricao,
       contexto: e.contexto,
       valor_total: e.valor_total_contrato,

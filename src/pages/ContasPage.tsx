@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { AtivosManuaisSection } from "../components/AtivosManuaisSection";
 import { ContextoBadge } from "../components/ContextoSelector";
 import { ContaIcone, IconeContaPicker } from "../components/ContaIcone";
@@ -11,7 +10,7 @@ import {
 } from "../components/ContextoFormSelect";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
-import { Input, Select } from "../components/ui/FormFields";
+import { Input, Select, ValorInput } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
 import {
@@ -27,16 +26,14 @@ import {
   invalidarLogoPreview,
   removerLogoConta,
 } from "../db/logosConta";
-import { getResumoCartaoCredito } from "../db/faturasCartao";
 import { getErrorMessage } from "../db/utils";
-import type { Contexto, ResumoCartaoCredito, TipoConta } from "../types";
-import { ICONE_PADRAO_POR_TIPO, type BancoPreset } from "../utils/contaIcone";
-import { formatCurrency, formatDate, labelTipoConta, arredondarMoeda } from "../utils/format";
+import type { Contexto, TipoConta } from "../types";
+import { ICONE_PADRAO_POR_TIPO } from "../utils/contaIcone";
+import { formatCurrency, labelTipoConta, arredondarMoeda } from "../utils/format";
 
 const TIPO_OPTIONS: { value: TipoConta; label: string }[] = [
   { value: "banco", label: "Banco" },
   { value: "dinheiro", label: "Dinheiro" },
-  { value: "cartao_credito", label: "Cartão de crédito" },
   { value: "poupanca", label: "Poupança" },
   { value: "investimento", label: "Investimento" },
 ];
@@ -47,7 +44,6 @@ export function ContasPage() {
   const { contexto, loading: ctxLoading } = useContexto();
   const confirm = useConfirm();
   const [contas, setContas] = useState<ContaComSaldo[]>([]);
-  const [resumosCartao, setResumosCartao] = useState<Map<number, ResumoCartaoCredito>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -58,18 +54,7 @@ export function ContasPage() {
     setError(null);
     try {
       const lista = await listContasComSaldo(contexto);
-      setContas(lista);
-      const cartoes = lista.filter(
-        (c) => c.tipo === "cartao_credito" && c.dia_fechamento && c.dia_vencimento,
-      );
-      const resumosMap = new Map<number, ResumoCartaoCredito>();
-      await Promise.all(
-        cartoes.map(async (c) => {
-          const r = await getResumoCartaoCredito(c.id);
-          if (r) resumosMap.set(c.id, r);
-        }),
-      );
-      setResumosCartao(resumosMap);
+      setContas(lista.filter((c) => c.tipo !== "cartao_credito"));
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -95,7 +80,7 @@ export function ContasPage() {
     <div>
       <PageHeader
         title="Contas"
-        subtitle="Bancos, carteiras, cartões, poupança e investimentos"
+        subtitle="Bancos, carteiras, poupança e investimentos"
         action={
           <Button
             onClick={() => {
@@ -119,99 +104,58 @@ export function ContasPage() {
         <EmptyState message="Nenhuma conta cadastrada. Comece pelos bancos ou pela carteira onde o dinheiro fica." />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {contas.map((conta) => {
-            const resumoCartao = resumosCartao.get(conta.id);
-            const isCartao = conta.tipo === "cartao_credito";
-            return (
-              <div
-                key={conta.id}
-                className="app-card p-5"
-                style={{ borderTopColor: conta.cor, borderTopWidth: 3 }}
-              >
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <ContaIcone
-                      icone={conta.icone}
-                      logoPath={conta.logo_path}
-                      tipo={conta.tipo}
-                      cor={conta.cor}
-                    />
-                    <div>
-                      <h3 className="font-semibold text-slate-900">{conta.nome}</h3>
-                      <p className="text-xs text-slate-500">{labelTipoConta(conta.tipo)}</p>
-                    </div>
+          {contas.map((conta) => (
+            <div
+              key={conta.id}
+              className="app-card p-5"
+              style={{ borderTopColor: conta.cor, borderTopWidth: 3 }}
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <ContaIcone
+                    icone={conta.icone}
+                    logoPath={conta.logo_path}
+                    tipo={conta.tipo}
+                    cor={conta.cor}
+                  />
+                  <div>
+                    <h3 className="font-semibold text-slate-900">{conta.nome}</h3>
+                    <p className="text-xs text-slate-500">{labelTipoConta(conta.tipo)}</p>
                   </div>
-                  {contexto === "consolidado" && <ContextoBadge itemContexto={conta.contexto} />}
                 </div>
-                {isCartao && resumoCartao ? (
-                  <>
-                    <p className="text-xl font-bold text-rose-600">
-                      {formatCurrency(resumoCartao.total_em_aberto)}
-                      <span className="ml-2 text-sm font-normal text-slate-500">em aberto</span>
-                    </p>
-                    {resumoCartao.limite_disponivel != null && (
-                      <p className="mt-1 text-sm text-emerald-600">
-                        Disponível: {formatCurrency(resumoCartao.limite_disponivel)}
-                      </p>
-                    )}
-                    {resumoCartao.fatura_atual && (
-                      <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                        <p className="font-medium text-slate-600">Fatura atual</p>
-                        <p className="text-slate-500">
-                          Vence {formatDate(resumoCartao.fatura_atual.vencimento)}
-                          {resumoCartao.fatura_atual.status === "aberta" && " · Em aberto"}
-                          {resumoCartao.fatura_atual.status === "fechada" && " · Fechada"}
-                        </p>
-                        <p className="mt-1 font-semibold text-rose-600">
-                          {formatCurrency(
-                            resumoCartao.fatura_atual.total -
-                              (resumoCartao.fatura_atual.valor_pago ?? 0),
-                          )}
-                        </p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p
-                    className={`text-xl font-bold ${arredondarMoeda(conta.saldo) >= 0 ? "text-slate-900" : "text-rose-600"}`}
-                  >
-                    {formatCurrency(conta.saldo)}
-                  </p>
-                )}
-                {!conta.ativo && (
-                  <span className="mt-2 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
-                    Inativa
-                  </span>
-                )}
-                <div className="mt-4 flex gap-2">
-                  {isCartao && conta.dia_fechamento && (
-                    <Link to={`/faturas/${conta.id}`} className="flex-1">
-                      <Button variant="secondary" className="w-full py-1.5">
-                        Faturas
-                      </Button>
-                    </Link>
-                  )}
-                  <Button
-                    variant="secondary"
-                    className="flex-1 py-1.5"
-                    onClick={() => {
-                      setEditing(conta);
-                      setModalOpen(true);
-                    }}
-                  >
-                    Editar
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="text-rose-600"
-                    onClick={() => void handleDelete(conta.id)}
-                  >
-                    Excluir
-                  </Button>
-                </div>
+                {contexto === "consolidado" && <ContextoBadge itemContexto={conta.contexto} />}
               </div>
-            );
-          })}
+              <p
+                className={`text-xl font-bold ${arredondarMoeda(conta.saldo) >= 0 ? "text-slate-900" : "text-rose-600"}`}
+              >
+                {formatCurrency(conta.saldo)}
+              </p>
+              {!conta.ativo && (
+                <span className="mt-2 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                  Inativa
+                </span>
+              )}
+              <div className="mt-4 flex gap-2">
+                <Button
+                  variant="secondary"
+                  className="flex-1 py-1.5"
+                  onClick={() => {
+                    setEditing(conta);
+                    setModalOpen(true);
+                  }}
+                >
+                  Editar
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="text-rose-600"
+                  onClick={() => void handleDelete(conta.id)}
+                >
+                  Excluir
+                </Button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -252,9 +196,6 @@ function ContaModal({
   const [pendingLogoSource, setPendingLogoSource] = useState<string | null>(null);
   const [removeLogoOnSave, setRemoveLogoOnSave] = useState(false);
   const [ativo, setAtivo] = useState(true);
-  const [diaFechamento, setDiaFechamento] = useState("");
-  const [diaVencimento, setDiaVencimento] = useState("");
-  const [limiteCredito, setLimiteCredito] = useState("");
   const [dataSaldoInicial, setDataSaldoInicial] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -263,7 +204,7 @@ function ContaModal({
     if (conta) {
       setFormContexto(conta.contexto);
       setNome(conta.nome);
-      setTipo(conta.tipo);
+      setTipo(conta.tipo === "cartao_credito" ? "banco" : conta.tipo);
       setSaldoInicial(String(conta.saldo_inicial));
       setCor(conta.cor);
       setIcone(conta.icone ?? "");
@@ -271,9 +212,6 @@ function ContaModal({
       setPendingLogoSource(null);
       setRemoveLogoOnSave(false);
       setAtivo(conta.ativo);
-      setDiaFechamento(conta.dia_fechamento ? String(conta.dia_fechamento) : "");
-      setDiaVencimento(conta.dia_vencimento ? String(conta.dia_vencimento) : "");
-      setLimiteCredito(conta.limite_credito ? String(conta.limite_credito) : "");
       setDataSaldoInicial(conta.data_saldo_inicial ?? "");
     } else {
       setFormContexto(defaultFormContexto(contexto));
@@ -286,9 +224,6 @@ function ContaModal({
       setPendingLogoSource(null);
       setRemoveLogoOnSave(false);
       setAtivo(true);
-      setDiaFechamento("");
-      setDiaVencimento("");
-      setLimiteCredito("");
       setDataSaldoInicial("");
     }
   }, [conta, open, contexto]);
@@ -304,7 +239,7 @@ function ContaModal({
     }
   }
 
-  function handleBancoPreset(preset: BancoPreset) {
+  function handleBancoPreset(preset: { nome: string; cor: string }) {
     setNome((atual) => (atual.trim() ? atual : preset.nome));
     setCor(preset.cor);
   }
@@ -325,12 +260,10 @@ function ContaModal({
       cor,
       icone: icone.trim() || null,
       ativo,
-      dia_fechamento:
-        tipo === "cartao_credito" && diaFechamento ? Number(diaFechamento) : null,
-      dia_vencimento:
-        tipo === "cartao_credito" && diaVencimento ? Number(diaVencimento) : null,
-      limite_credito:
-        tipo === "cartao_credito" && limiteCredito ? parseFloat(limiteCredito) : null,
+      dia_fechamento: null,
+      dia_vencimento: null,
+      limite_credito: null,
+      final_cartao: null,
       data_saldo_inicial: dataSaldoInicial.trim() || null,
     };
     setSaving(true);
@@ -386,15 +319,14 @@ function ContaModal({
           onLogoPathChange={handleLogoPathChange}
           onPendingLogoSourceChange={setPendingLogoSource}
           onBancoPreset={handleBancoPreset}
+          nomeAtual={nome}
           previewCor={cor}
         />
         {contexto === "consolidado" && (
           <ContextoFormSelect value={formContexto} onChange={setFormContexto} />
         )}
-        <Input
+        <ValorInput
           label="Saldo inicial"
-          type="number"
-          step="0.01"
           value={saldoInicial}
           onChange={(e) => setSaldoInicial(e.target.value)}
         />
@@ -408,39 +340,6 @@ function ContaModal({
           Use quando a conta passou a ser controlada a partir de uma data específica. Lançamentos
           anteriores não afetam o saldo.
         </p>
-        {tipo === "cartao_credito" && (
-          <>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Input
-                label="Dia de fechamento"
-                type="number"
-                min="1"
-                max="31"
-                value={diaFechamento}
-                onChange={(e) => setDiaFechamento(e.target.value)}
-                placeholder="Ex.: 5"
-              />
-              <Input
-                label="Dia de vencimento"
-                type="number"
-                min="1"
-                max="31"
-                value={diaVencimento}
-                onChange={(e) => setDiaVencimento(e.target.value)}
-                placeholder="Ex.: 12"
-              />
-            </div>
-            <Input
-              label="Limite de crédito (opcional)"
-              type="number"
-              step="0.01"
-              min="0"
-              value={limiteCredito}
-              onChange={(e) => setLimiteCredito(e.target.value)}
-              placeholder="Ex.: 5000"
-            />
-          </>
-        )}
         <div>
           <p className="mb-2 text-sm font-medium text-slate-600">Cor</p>
           <div className="flex flex-wrap gap-2">

@@ -76,6 +76,26 @@ export function mesesAnteriores(quantidade: number): string[] {
   return result;
 }
 
+/** Soma/subtrai meses em referência YYYY-MM. */
+export function addMonthsYm(mesReferencia: string, delta: number): string {
+  const [ano, mes] = mesReferencia.split("-").map(Number);
+  const d = new Date(ano, mes - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Lista inclusiva de meses YYYY-MM entre início e fim. */
+export function listMesesEntre(inicio: string, fim: string): string[] {
+  if (inicio > fim) return [];
+  const out: string[] = [];
+  let cur = inicio;
+  while (cur <= fim) {
+    out.push(cur);
+    cur = addMonthsYm(cur, 1);
+    if (out.length > 600) break; // proteção
+  }
+  return out;
+}
+
 /** Meses ao redor de uma referência (ex.: 2 anteriores + atual + 3 seguintes). */
 export function mesesAoRedor(
   mesReferencia: string,

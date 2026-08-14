@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { abrirAnexo, nomeAnexo } from "../db/anexos";
 import { aplicarAnexoPendente, TransacaoAnexoField } from "../components/TransacaoAnexoField";
 import { TagSelect } from "../components/TagSelect";
+import { ParcelasJaPagasField } from "../components/ParcelasJaPagasField";
 import { ConciliacaoOfxModal } from "../components/ConciliacaoOfxModal";
 import { useConfirm } from "../components/ConfirmDialog";
 import { ContextoBadge } from "../components/ContextoSelector";
@@ -13,7 +14,7 @@ import {
 } from "../components/ContextoFormSelect";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
-import { Input, Select, Textarea } from "../components/ui/FormFields";
+import { Input, Select, Textarea, ValorInput } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
 import { filtrarCategoriasParaLancamento, listCategorias } from "../db/categorias";
@@ -23,10 +24,12 @@ import {
   type ProgressoOrcamentoCategoria,
 } from "../db/orcamentos";
 import {
+  confirmarLancamentoRecorrente,
   createTransacaoRecorrente,
   deleteTransacaoRecorrente,
   listTransacoesRecorrentes,
-  sincronizarTransacoesRecorrentes,
+  mapRecorrentesStatusMes,
+  podeConfirmarRecorrenteNoMes,
   updateTransacaoRecorrente,
   type TransacaoRecorrenteInput,
 } from "../db/transacoesRecorrentes";
@@ -47,12 +50,16 @@ import {
   updateTransferenciaVinculada,
   type TransacaoInput,
 } from "../db/transacoes";
+import { listFaturasParaLancamentos } from "../db/faturasCartao";
+import { sincronizarLancamentosParcelamentos } from "../db/emprestimos";
 import { getErrorMessage } from "../db/utils";
 import type { Contexto, Tag, Transacao, TransacaoRecorrente } from "../types";
 import { intervaloDoMes, intervaloMesAtual, todayIsoDate } from "../utils/dates";
 import { formatCurrency, formatDate, labelMes, mesAtual } from "../utils/format";
+import { validarParcelasJaPagas } from "../utils/parcelasHistoricas";
 import {
   agruparTransacoesParaExibicao,
+  faturaParaExibicao,
   labelTipoTransacao,
 } from "../utils/transacoesExibicao";
 
@@ -85,6 +92,9 @@ export function TransacoesPage() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [conciliacaoModalOpen, setConciliacaoModalOpen] = useState(false);
   const [tagsPorTransacao, setTagsPorTransacao] = useState<Map<number, Tag[]>>(new Map());
+  const [faturasLancamentos, setFaturasLancamentos] = useState<
+    Awaited<ReturnType<typeof listFaturasParaLancamentos>>
+  >([]);
 
   useEffect(() => {
     const abaParam = searchParams.get("aba");
@@ -132,10 +142,8 @@ export function TransacoesPage() {
     setLoading(true);
     setError(null);
     try {
-      if (filtroMes) {
-        await sincronizarTransacoesRecorrentes(filtroMes, contexto);
-      }
-      const [t, c, cat, todasContas] = await Promise.all([
+      await sincronizarLancamentosParcelamentos(contexto);
+      const [t, c, cat, todasContas, faturas] = await Promise.all([
         listTransacoes({
           contexto,
           dataInicio: filtroDataInicio || undefined,
@@ -146,12 +154,25 @@ export function TransacoesPage() {
         listContas(contexto),
         listCategorias("consolidado"),
         listContas("consolidado"),
+        filtroDataInicio && filtroDataFim && !filtroCategoria
+          ? listFaturasParaLancamentos(filtroDataInicio, filtroDataFim, contexto)
+          : Promise.resolve([]),
       ]);
       setTransacoes(t);
       setTagsPorTransacao(await getTagsPorTransacoes(t.map((tx) => tx.id)));
       setContas(c);
       setCategorias(cat);
       setNomesContas(new Map(todasContas.map((conta) => [conta.id, conta.nome])));
+      const contaFiltro = filtroConta
+        ? c.find((conta) => String(conta.id) === filtroConta)
+        : undefined;
+      setFaturasLancamentos(
+        !contaFiltro || contaFiltro.tipo === "cartao_credito"
+          ? filtroConta
+            ? faturas.filter((x) => String(x.fatura.conta_id) === filtroConta)
+            : faturas
+          : [],
+      );
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -163,10 +184,26 @@ export function TransacoesPage() {
     if (!ctxLoading) void carregar();
   }, [carregar, ctxLoading]);
 
-  const transacoesExibicao = useMemo(
-    () => agruparTransacoesParaExibicao(transacoes, nomesContas),
-    [transacoes, nomesContas],
-  );
+  const transacoesExibicao = useMemo(() => {
+    const contasCartaoIds = new Set(
+      contas.filter((c) => c.tipo === "cartao_credito").map((c) => c.id),
+    );
+    const contaFiltro = filtroConta
+      ? contas.find((c) => String(c.id) === filtroConta)
+      : undefined;
+    const ocultarPagamentos = !contaFiltro || contaFiltro.tipo === "cartao_credito";
+    const base = agruparTransacoesParaExibicao(transacoes, nomesContas, {
+      contasCartaoIds,
+      ocultarPagamentosFatura: ocultarPagamentos,
+    });
+    const faturas = faturasLancamentos.map(({ fatura, contexto: ctx }) =>
+      faturaParaExibicao(fatura, ctx),
+    );
+    return [...base, ...faturas].sort(
+      (a, b) =>
+        b.transacao.data.localeCompare(a.transacao.data) || b.id - a.id,
+    );
+  }, [transacoes, nomesContas, contas, filtroConta, faturasLancamentos]);
 
   async function handleDelete(transacao: Transacao) {
     const vinculada =
@@ -296,7 +333,8 @@ export function TransacoesPage() {
           />
         </div>
         <p className="text-xs text-slate-500">
-          Por padrão mostramos o mês atual. Use o seletor de mês ou ajuste as datas para outro período.
+          Por padrão mostramos o mês atual. Compras no cartão não entram aqui — aparece o total da
+          fatura no vencimento. O detalhe fica em Cartões de crédito.
         </p>
       </div>
 
@@ -360,6 +398,15 @@ export function TransacoesPage() {
                         </button>
                       )}
                       {t.descricao}
+                      {item.faturaResumo?.status === "paga" && (
+                        <span className="ml-2 text-xs font-normal text-emerald-700">Paga</span>
+                      )}
+                      {item.faturaResumo?.status === "aberta" && (
+                        <span className="ml-2 text-xs font-normal text-teal-700">Em aberto</span>
+                      )}
+                      {item.faturaResumo?.status === "fechada" && (
+                        <span className="ml-2 text-xs font-normal text-amber-700">Fechada</span>
+                      )}
                     </div>
                     {(tagsPorTransacao.get(t.id) ?? []).length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
@@ -406,6 +453,13 @@ export function TransacoesPage() {
                     {formatCurrency(t.valor)}
                   </td>
                   <td className="px-4 py-3">
+                    {item.faturaResumo ? (
+                      <Link to={`/cartoes/${item.faturaResumo.conta_id}`}>
+                        <Button variant="ghost" className="px-2 py-1">
+                          Ver fatura
+                        </Button>
+                      </Link>
+                    ) : (
                     <div className="flex gap-2">
                       <Button
                         variant="ghost"
@@ -425,6 +479,7 @@ export function TransacoesPage() {
                         Excluir
                       </Button>
                     </div>
+                    )}
                   </td>
                 </tr>
               );
@@ -489,22 +544,29 @@ function RecorrentesPanel({
 }) {
   const confirm = useConfirm();
   const [lista, setLista] = useState<TransacaoRecorrente[]>([]);
+  const [statusMes, setStatusMes] = useState<
+    Map<number, { jaGerado: boolean; diaPassou: boolean }>
+  >(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<TransacaoRecorrente | null>(null);
+  const [confirmandoId, setConfirmandoId] = useState<number | null>(null);
+  const mes = mesAtual();
 
   const carregar = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setLista(await listTransacoesRecorrentes(contexto));
+      const itens = await listTransacoesRecorrentes(contexto);
+      setLista(itens);
+      setStatusMes(await mapRecorrentesStatusMes(itens, mes));
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [contexto]);
+  }, [contexto, mes]);
 
   useEffect(() => {
     if (!ctxLoading) void carregar();
@@ -520,12 +582,36 @@ function RecorrentesPanel({
     }
   }
 
+  async function handleConfirmar(r: TransacaoRecorrente) {
+    const verbo = r.tipo === "receita" ? "recebimento" : "pagamento";
+    if (
+      !(await confirm({
+        title: `Confirmar ${verbo}?`,
+        message: `Isso lança ${formatCurrency(r.valor)} na conta e altera o saldo (caixa). Confirme só se o dinheiro já ${r.tipo === "receita" ? "entrou" : "saiu"}.`,
+        confirmLabel: "Confirmar",
+        tone: "default",
+      }))
+    ) {
+      return;
+    }
+    setConfirmandoId(r.id);
+    setError(null);
+    try {
+      await confirmarLancamentoRecorrente(r.id, mes);
+      await carregar();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setConfirmandoId(null);
+    }
+  }
+
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-400">
-          Aluguel, assinaturas, salários — viram lançamento só no mês corrente, a partir do dia
-          informado. Antes disso entram só como compromisso previsto no dashboard.
+          Aluguel, assinaturas, salários — ficam como compromisso previsto até você confirmar. Só
+          então entram no caixa da conta.
         </p>
         <Button
           onClick={() => {
@@ -557,13 +643,16 @@ function RecorrentesPanel({
                 <th className="px-4 py-3 font-medium">Dia</th>
                 <th className="px-4 py-3 font-medium">Conta</th>
                 <th className="px-4 py-3 font-medium text-right">Valor</th>
-                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Neste mês</th>
                 <th className="px-4 py-3 font-medium">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {lista.map((r) => {
                 const conta = contas.find((c) => c.id === r.conta_id);
+                const st = statusMes.get(r.id);
+                const jaGerado = st?.jaGerado ?? false;
+                const podeConfirmar = podeConfirmarRecorrenteNoMes(r, mes, jaGerado);
                 return (
                   <tr key={r.id} className="app-table-row">
                     <td className="px-4 py-3 font-medium text-slate-700">{r.descricao}</td>
@@ -577,14 +666,32 @@ function RecorrentesPanel({
                       {formatCurrency(r.valor)}
                     </td>
                     <td className="px-4 py-3">
-                      {r.ativo ? (
-                        <span className="text-emerald-600">Ativo</span>
-                      ) : (
+                      {!r.ativo ? (
                         <span className="text-slate-500">Inativo</span>
+                      ) : jaGerado ? (
+                        <span className="text-emerald-600">No caixa</span>
+                      ) : st?.diaPassou ? (
+                        <span className="text-amber-700">Aguardando confirmação</span>
+                      ) : (
+                        <span className="text-slate-500">Compromisso</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        {podeConfirmar && (
+                          <Button
+                            variant="secondary"
+                            className="px-2 py-1 text-xs"
+                            disabled={confirmandoId === r.id}
+                            onClick={() => void handleConfirmar(r)}
+                          >
+                            {confirmandoId === r.id
+                              ? "…"
+                              : r.tipo === "receita"
+                                ? "Confirmar recebimento"
+                                : "Confirmar pagamento"}
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           className="px-2 py-1"
@@ -696,6 +803,10 @@ function RecorrenteModal({
       setFormError("Dia do mês deve ser entre 1 e 31.");
       return;
     }
+    if (!categoriaId) {
+      setFormError("A categoria é obrigatória para o recorrente entrar no orçamento.");
+      return;
+    }
 
     const input: TransacaoRecorrenteInput = {
       descricao,
@@ -740,10 +851,8 @@ function RecorrenteModal({
         {formError && <ErrorAlert message={formError} />}
         <Input label="Descrição" value={descricao} onChange={(e) => setDescricao(e.target.value)} required />
         <div className="grid gap-4 md:grid-cols-2">
-          <Input
+          <ValorInput
             label="Valor"
-            type="number"
-            step="0.01"
             min="0"
             value={valor}
             onChange={(e) => setValor(e.target.value)}
@@ -785,13 +894,14 @@ function RecorrenteModal({
             options={contasFiltradas.map((c) => ({ value: String(c.id), label: c.nome }))}
           />
           <Select
-            label="Categoria"
+            label="Categoria (orçamento)"
             value={categoriaId}
             onChange={(e) => setCategoriaId(e.target.value)}
             options={[
-              { value: "", label: "Sem categoria" },
+              { value: "", label: "Selecione a categoria" },
               ...categoriasFiltradas.map((c) => ({ value: String(c.id), label: c.nome })),
             ]}
+            required
           />
         </div>
         <Textarea label="Observações" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
@@ -953,6 +1063,7 @@ function TransacaoModal({
   const [pendingAnexoSource, setPendingAnexoSource] = useState<string | null>(null);
   const [tagIds, setTagIds] = useState<number[]>([]);
   const [parcelas, setParcelas] = useState("1");
+  const [parcelasJaPagas, setParcelasJaPagas] = useState(0);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isVinculada, setIsVinculada] = useState(false);
@@ -1039,7 +1150,8 @@ function TransacaoModal({
         setValor("");
         setData(todayIsoDate());
         setTipo(tipoInicial ?? "despesa");
-        setContaId(contas[0] ? String(contas[0].id) : "");
+        const primeira = contas.find((c) => c.tipo !== "cartao_credito") ?? contas[0];
+        setContaId(primeira ? String(primeira.id) : "");
         setContaOrigemId(todasContas[0] ? String(todasContas[0].id) : "");
         setContaDestinoId(todasContas[1] ? String(todasContas[1].id) : "");
         setCategoriaId("");
@@ -1050,6 +1162,7 @@ function TransacaoModal({
         setPendingAnexoSource(null);
         setTagIds([]);
         setParcelas("1");
+        setParcelasJaPagas(0);
         setMaisOpcoes(false);
       }
     }
@@ -1179,14 +1292,30 @@ function TransacaoModal({
         } else {
           const contaSel = contasFiltradas.find((c) => String(c.id) === contaId);
           const nParcelas = Math.floor(Number(parcelas));
+          const jaPagas = Math.min(
+            Math.max(0, parcelasJaPagas),
+            Math.max(0, nParcelas - 1),
+          );
           if (
             tipo === "despesa" &&
             contaSel?.tipo === "cartao_credito" &&
             nParcelas >= 2
           ) {
+            const errHist = validarParcelasJaPagas(jaPagas, nParcelas);
+            if (errHist) {
+              setFormError(errHist);
+              setSaving(false);
+              return;
+            }
+            if (jaPagas >= nParcelas) {
+              setFormError("Deixe ao menos 1 parcela em aberto.");
+              setSaving(false);
+              return;
+            }
             const criadas = await createCompraParceladaCartao({
               ...input,
               parcelas: nParcelas,
+              parcelas_ja_pagas: jaPagas,
             });
             if (pendingAnexoSource && criadas[0]) {
               await aplicarAnexoPendente(criadas[0].id, pendingAnexoSource);
@@ -1209,6 +1338,9 @@ function TransacaoModal({
 
   const contasFiltradas = contas.filter(
     (c) => contexto === "consolidado" || c.contexto === contexto,
+  );
+  const contasLancamento = contasFiltradas.filter(
+    (c) => transacao != null || c.tipo !== "cartao_credito",
   );
 
   const contaSelecionada = contasFiltradas.find((c) => String(c.id) === contaId);
@@ -1268,10 +1400,8 @@ function TransacaoModal({
           placeholder="Ex.: supermercado, salário, aluguel"
         />
         <div className="grid gap-4 md:grid-cols-2">
-          <Input
+          <ValorInput
             label="Quanto"
-            type="number"
-            step="0.01"
             min="0"
             value={valor}
             onChange={(e) => setValor(e.target.value)}
@@ -1352,7 +1482,7 @@ function TransacaoModal({
               label="De onde"
               value={contaId}
               onChange={(e) => setContaId(e.target.value)}
-              options={contasFiltradas.map((c) => ({ value: String(c.id), label: c.nome }))}
+              options={contasLancamento.map((c) => ({ value: String(c.id), label: c.nome }))}
             />
             <Select
               label="Categoria"
@@ -1364,6 +1494,16 @@ function TransacaoModal({
               ]}
             />
           </div>
+        )}
+        {!transacao && !isTransferencia && (
+          <p className="-mt-2 text-xs text-slate-500">
+            Compras no cartão são lançadas em Cartões de crédito. Aqui entra o total da fatura.
+          </p>
+        )}
+        {!transacao && !isTransferencia && (
+          <p className="-mt-2 text-xs text-slate-500">
+            Compras no cartão são lançadas em Cartões de crédito. Aqui entra o total da fatura.
+          </p>
         )}
 
         {dicaOrcamento && dicaOrcamento.disponivel != null && (
@@ -1391,13 +1531,27 @@ function TransacaoModal({
               max="48"
               step="1"
               value={parcelas}
-              onChange={(e) => setParcelas(e.target.value)}
+              onChange={(e) => {
+                setParcelas(e.target.value);
+                const n = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                setParcelasJaPagas((q) => Math.min(q, Math.max(0, n - 1)));
+              }}
             />
             {Number(parcelas) >= 2 && (
-              <p className="text-xs text-slate-500">
-                O valor será dividido em {Math.floor(Number(parcelas))} lançamentos, um por
-                ciclo de fatura a partir da data informada.
-              </p>
+              <>
+                <ParcelasJaPagasField
+                  value={Math.min(parcelasJaPagas, Math.max(0, Math.floor(Number(parcelas)) - 1))}
+                  onChange={(q) =>
+                    setParcelasJaPagas(Math.min(q, Math.max(0, Math.floor(Number(parcelas)) - 1)))
+                  }
+                  totalParcelas={Math.floor(Number(parcelas))}
+                  hint="Quantas já caíram na fatura. Só as restantes serão lançadas (ex.: 10× com 4 pagas → cria da 5/10 em diante)."
+                />
+                <p className="text-xs text-slate-500">
+                  O valor total é dividido em {Math.floor(Number(parcelas))} parcelas; as já
+                  pagas não entram de novo nas faturas.
+                </p>
+              </>
             )}
           </div>
         )}

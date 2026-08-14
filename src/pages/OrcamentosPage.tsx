@@ -8,15 +8,17 @@ import {
 } from "../components/ContextoFormSelect";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
-import { Input, Select } from "../components/ui/FormFields";
+import { Input, Select, ValorInput } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
 import { findCategoriaById, listCategorias } from "../db/categorias";
 import {
+  aplicarLimiteMesesPosteriores,
   createOrcamento,
   copiarOrcamentosDoMesAnterior,
   deleteOrcamento,
   getOrcamentosComProgresso,
+  garantirOrcamentosCategoriasNoMes,
   pararRecorrenciaOrcamento,
   updateOrcamento,
   type OrcamentoComProgresso,
@@ -41,6 +43,7 @@ export function OrcamentosPage() {
     setLoading(true);
     setError(null);
     try {
+      await garantirOrcamentosCategoriasNoMes(mes, contexto);
       const [o, cat] = await Promise.all([
         getOrcamentosComProgresso(contexto, mes),
         listCategorias("consolidado"),
@@ -130,7 +133,7 @@ export function OrcamentosPage() {
     }
   }
   function tituloOrcamento(orc: OrcamentoComProgresso, cat?: { nome: string }) {
-    return orc.descricao || cat?.nome || `Categoria #${orc.categoria_id}`;
+    return cat?.nome || orc.descricao || `Categoria #${orc.categoria_id}`;
   }
   const isReceita = aba === "receita";
   return (
@@ -139,8 +142,8 @@ export function OrcamentosPage() {
         title="Orçamentos"
         subtitle={
           isReceita
-            ? "Receita planejada do mês — realizado e valores a receber"
-            : "Limites mensais por categoria ou item fixo (ex.: aluguel)"
+            ? "Receita planejada do mês por categoria — realizado e a receber"
+            : "Um limite por categoria. Despesas, Agenda, financiamentos, empréstimos e parcelamentos nela contam no mesmo envelope."
         }
         action={
           <div className="flex gap-2">
@@ -153,7 +156,7 @@ export function OrcamentosPage() {
                 setModalOpen(true);
               }}
             >
-              + Novo orçamento
+              + Limite por categoria
             </Button>
           </div>
         }
@@ -216,14 +219,16 @@ export function OrcamentosPage() {
               }`}
             >
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Disponível para gastar neste mês
+                {totais.saldo >= 0
+                  ? "Você economizou"
+                  : "Você estourou o orçamento em"}
               </p>
               <p
                 className={`mt-1 text-3xl font-bold tracking-tight ${
                   totais.saldo >= 0 ? "text-emerald-700" : "text-rose-700"
                 }`}
               >
-                {formatCurrency(totais.saldo)}
+                {formatCurrency(Math.abs(totais.saldo))}
               </p>
               <p className="mt-1 text-sm text-slate-500">
                 Limite {formatCurrency(totais.limiteTotal)} − já usado/comprometido{" "}
@@ -236,7 +241,7 @@ export function OrcamentosPage() {
               <ResumoCard
                 title={isReceita ? "Planejado total" : "Limite total"}
                 value={formatCurrency(totais.limiteTotal)}
-                subtitle={`${orcamentosAba.length} item(ns) com ${isReceita ? "receita planejada" : "orçamento"}`}
+                subtitle={`${orcamentosAba.length} categoria(s) com ${isReceita ? "receita planejada" : "orçamento"}`}
                 accent="indigo"
               />
               <ResumoCard
@@ -244,7 +249,7 @@ export function OrcamentosPage() {
                 value={formatCurrency(totais.realizadoTotal)}
                 subtitle={
                   totais.comprometidoTotal > 0
-                    ? `+ ${formatCurrency(totais.comprometidoTotal)} comprometido${isReceita ? " (a receber)" : " (financ./emprést./a pagar)"}`
+                    ? `+ ${formatCurrency(totais.comprometidoTotal)} comprometido${isReceita ? " (a receber)" : " (agenda / recorrentes / dívidas)"}`
                     : isReceita
                       ? "Receitas efetivadas no mês"
                       : "Despesas efetivadas no mês"
@@ -297,27 +302,28 @@ export function OrcamentosPage() {
             const pct = Math.min(orc.percentual, 100);
             const alertaItem =
               orc.tipo_categoria === "receita"
-                ? orc.total_usado < orc.valor_limite * 0.8
-                : orc.total_usado > orc.valor_limite;
+                ? orc.valor_limite > 0 && orc.total_usado < orc.valor_limite * 0.8
+                : orc.valor_limite > 0 && orc.total_usado > orc.valor_limite;
             const atencaoItem =
               orc.tipo_categoria === "despesa" &&
               !alertaItem &&
+              orc.valor_limite > 0 &&
               orc.percentual >= 80;
+            const semLimite = orc.valor_limite <= 0;
             return (
               <div key={orc.id} className="app-card p-5">
                 <div className="mb-3 flex items-start justify-between">
                   <div>
                     <p className="font-semibold text-slate-900">{tituloOrcamento(orc, cat)}</p>
-                    {orc.descricao && cat && (
-                      <p className="text-xs text-slate-500">{cat.nome}</p>
-                    )}
                     {orc.recorrente_id && (
                       <span className="mt-1 inline-block rounded bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-800 ring-1 ring-teal-200">
                         Recorrente
                       </span>
                     )}
                     <p className="text-sm text-slate-500">
-                      {formatCurrency(orc.total_usado)} de {formatCurrency(orc.valor_limite)}
+                      {semLimite
+                        ? `${formatCurrency(orc.total_usado)} usados · defina o limite`
+                        : `${formatCurrency(orc.total_usado)} de ${formatCurrency(orc.valor_limite)}`}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-500">
                       Realizado: {formatCurrency(orc.gasto)}
@@ -325,6 +331,11 @@ export function OrcamentosPage() {
                         <> · Comprometido: {formatCurrency(orc.comprometido)}</>
                       )}
                     </p>
+                    {semLimite && (
+                      <p className="mt-1 text-xs font-medium text-amber-800">
+                        Orçamento da categoria sem limite — edite para acompanhar o teto.
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {contexto === "consolidado" && (
@@ -446,71 +457,109 @@ function OrcamentoModal({
   const [categoriaId, setCategoriaId] = useState("");
   const [mesRef, setMesRef] = useState(mes);
   const [valorLimite, setValorLimite] = useState("");
-  const [descricao, setDescricao] = useState("");
-  const [recorrente, setRecorrente] = useState(false);
   const [atualizarRecorrente, setAtualizarRecorrente] = useState(true);
+  const [aplicarPosteriores, setAplicarPosteriores] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
   useEffect(() => {
     if (orcamento) {
       setFormContexto(orcamento.contexto);
       setCategoriaId(String(orcamento.categoria_id));
       setMesRef(orcamento.mes_referencia);
-      setValorLimite(String(orcamento.valor_limite));
-      setDescricao(orcamento.descricao ?? "");
-      setRecorrente(!!orcamento.recorrente_id);
+      setValorLimite(orcamento.valor_limite > 0 ? String(orcamento.valor_limite) : "");
       setAtualizarRecorrente(true);
+      setAplicarPosteriores(true);
     } else {
       setFormContexto(defaultFormContexto(contexto));
       setCategoriaId(categorias[0] ? String(categorias[0].id) : "");
       setMesRef(mes);
       setValorLimite("");
-      setDescricao("");
-      setRecorrente(false);
       setAtualizarRecorrente(true);
+      setAplicarPosteriores(true);
     }
+    setFormError(null);
   }, [orcamento, open, contexto, categorias, mes]);
-  const previewTotais = useMemo(() => {
+
+  const previewCategoria = useMemo(() => {
     const ctx = resolveContexto(contexto, formContexto);
-    const doMes = orcamentosMes.filter((o) => o.mes_referencia === mesRef && o.contexto === ctx);
-    const outros = doMes.filter((o) => o.id !== orcamento?.id);
+    const catId = Number(categoriaId);
     const novoLimite = parseFloat(valorLimite);
-    const limiteTotal =
-      outros.reduce((s, o) => s + o.valor_limite, 0) + (isNaN(novoLimite) ? 0 : novoLimite);
-    const realizadoTotal = doMes.reduce((s, o) => s + o.gasto, 0);
-    const previstoTotal = doMes.reduce((s, o) => s + o.total_usado, 0);
-    return { limiteTotal, realizadoTotal, previstoTotal };
-  }, [orcamentosMes, mesRef, formContexto, contexto, orcamento, valorLimite]);
+    const limite = !isNaN(novoLimite) ? novoLimite : 0;
+
+    if (!catId) {
+      return { limite, realizado: 0, previsto: 0 };
+    }
+
+    const daCategoria = orcamentosMes.filter(
+      (o) =>
+        o.mes_referencia === mesRef &&
+        o.contexto === ctx &&
+        o.categoria_id === catId,
+    );
+    const amostra =
+      daCategoria.find((o) => o.id === orcamento?.id) ?? daCategoria[0] ?? null;
+
+    return {
+      limite,
+      realizado: amostra?.gasto ?? 0,
+      previsto: amostra?.total_usado ?? 0,
+    };
+  }, [
+    orcamentosMes,
+    mesRef,
+    formContexto,
+    contexto,
+    orcamento,
+    valorLimite,
+    categoriaId,
+  ]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const valor = parseFloat(valorLimite);
     if (!categoriaId || !valorLimite || isNaN(valor)) {
-      setFormError("Preencha todos os campos.");
+      setFormError("Informe a categoria e o limite.");
       return;
     }
-    if (recorrente && !orcamento && !descricao.trim()) {
-      setFormError(
-        isReceita
-          ? "Informe a descrição do item recorrente (ex.: Mensalidade clientes)."
-          : "Informe a descrição do item recorrente (ex.: Aluguel).",
-      );
-      return;
-    }
+
+    const ctx = resolveContexto(contexto, formContexto);
+    const catId = Number(categoriaId);
+
     const input: OrcamentoInput = {
-      categoria_id: Number(categoriaId),
-      contexto: resolveContexto(contexto, formContexto),
+      categoria_id: catId,
+      contexto: ctx,
       mes_referencia: mesRef,
       valor_limite: valor,
-      descricao: descricao.trim() || null,
-      recorrente: !orcamento && recorrente,
+      descricao: null,
+      recorrente: false,
       atualizar_recorrente: orcamento?.recorrente_id ? atualizarRecorrente : undefined,
     };
     setSaving(true);
     try {
-      if (orcamento) {
+      if (aplicarPosteriores) {
+        await aplicarLimiteMesesPosteriores(catId, ctx, mesRef, valor);
+        if (orcamento?.recorrente_id && atualizarRecorrente) {
+          await updateOrcamento(orcamento.id, {
+            ...input,
+            atualizar_recorrente: true,
+          });
+        }
+      } else if (orcamento) {
         await updateOrcamento(orcamento.id, input);
       } else {
-        await createOrcamento(input);
+        const existente = orcamentosMes.find(
+          (o) =>
+            o.mes_referencia === mesRef &&
+            o.contexto === ctx &&
+            o.categoria_id === catId &&
+            o.recorrente_id == null,
+        );
+        if (existente) {
+          await updateOrcamento(existente.id, input);
+        } else {
+          await createOrcamento(input);
+        }
       }
       onSaved();
     } catch (err) {
@@ -519,13 +568,14 @@ function OrcamentoModal({
       setSaving(false);
     }
   }
+
   async function handlePararRecorrencia() {
     if (!orcamento?.recorrente_id) return;
     if (
       !(await confirm({
         title: "Parar recorrência",
         message:
-          "O item deixa de ser criado automaticamente nos próximos meses. Os meses já cadastrados permanecem.",
+          "O limite deixa de ser recriado automaticamente nos próximos meses. Os meses já cadastrados permanecem.",
         confirmLabel: "Parar recorrência",
         tone: "danger",
       }))
@@ -542,6 +592,7 @@ function OrcamentoModal({
       setSaving(false);
     }
   }
+
   return (
     <Modal
       open={open}
@@ -550,56 +601,46 @@ function OrcamentoModal({
         orcamento
           ? isReceita
             ? "Editar receita planejada"
-            : "Editar orçamento"
+            : "Editar limite da categoria"
           : isReceita
-            ? "Nova receita planejada"
-            : "Novo orçamento"
+            ? "Receita planejada por categoria"
+            : "Limite por categoria"
       }
     >
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         {formError && <ErrorAlert message={formError} />}
-        <Input
-          label="Descrição do item"
-          value={descricao}
-          onChange={(e) => setDescricao(e.target.value)}
-          placeholder={
-            isReceita ? "Ex.: Mensalidade, Serviços, Vendas" : "Ex.: Aluguel, Internet, Condomínio"
-          }
-        />
         <Select
           label="Categoria"
           value={categoriaId}
           onChange={(e) => setCategoriaId(e.target.value)}
           options={categorias.map((c) => ({ value: String(c.id), label: c.nome }))}
+          required
         />
         <Input label="Mês" type="month" value={mesRef} onChange={(e) => setMesRef(e.target.value)} />
-        <Input
+        <ValorInput
           label={isReceita ? "Valor planejado" : "Valor limite"}
-          type="number"
-          step="0.01"
           min="0"
           value={valorLimite}
           onChange={(e) => setValorLimite(e.target.value)}
           required
         />
-        {!orcamento && (
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={recorrente}
-              onChange={(e) => setRecorrente(e.target.checked)}
-            />
-            <div>
-              <span className="text-sm font-medium text-slate-700">Repetir todo mês</span>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {isReceita
-                  ? "Ideal para receitas recorrentes como mensalidades. O valor planejado será recriado automaticamente nos meses seguintes."
-                  : "Ideal para despesas fixas como aluguel. O limite será recriado automaticamente nos meses seguintes."}
-              </p>
-            </div>
-          </label>
-        )}
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={aplicarPosteriores}
+            onChange={(e) => setAplicarPosteriores(e.target.checked)}
+          />
+          <div>
+            <span className="text-sm font-medium text-slate-800">
+              Aplicar a todos os meses posteriores
+            </span>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Usa este {isReceita ? "planejado" : "limite"} a partir de {labelMes(mesRef)}, inclusive
+              nos meses futuros ainda sem envelope.
+            </p>
+          </div>
+        </label>
         {orcamento?.recorrente_id && (
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-teal-200 bg-teal-50 p-3">
             <input
@@ -611,30 +652,41 @@ function OrcamentoModal({
             <div>
               <span className="text-sm font-medium text-teal-900">Atualizar todos os meses</span>
               <p className="mt-0.5 text-xs text-teal-800">
-                Propaga valor e descrição para este e os próximos meses deste item recorrente.
+                Propaga o limite para este e os próximos meses desta recorrência antiga.
               </p>
             </div>
           </label>
         )}
-        {(valorLimite || orcamentosMes.length > 0) && (
+        {(categoriaId || valorLimite) && (
           <div className="app-muted-box px-3 py-3 text-sm text-slate-600">
-            <p>
-              <span className="text-slate-500">
-                {isReceita ? "Planejado total do mês:" : "Limite total do mês:"}
-              </span>{" "}
-              <strong>{formatCurrency(previewTotais.limiteTotal)}</strong>
+            <p className="text-xs text-slate-500">
+              Resumo só desta categoria (lançamentos, agenda e dívidas nela).
             </p>
             <p className="mt-1">
-              <span className="text-slate-500">Realizado no mês:</span>{" "}
-              <strong>{formatCurrency(previewTotais.realizadoTotal)}</strong>
+              <span className="text-slate-500">
+                {isReceita ? "Planejado:" : "Limite:"}
+              </span>{" "}
+              <strong>{formatCurrency(previewCategoria.limite)}</strong>
             </p>
-            {previewTotais.limiteTotal > 0 && (
-              <p className="mt-1 text-xs text-slate-500">
-                Previsto (realizado + comprometido): {formatCurrency(previewTotais.previstoTotal)} (
-                {Math.min((previewTotais.previstoTotal / previewTotais.limiteTotal) * 100, 999).toFixed(0)}
-                % {isReceita ? "do planejado" : "do limite"})
-              </p>
-            )}
+            <p className="mt-1">
+              <span className="text-slate-500">Realizado:</span>{" "}
+              <strong>{formatCurrency(previewCategoria.realizado)}</strong>
+            </p>
+            <p className="mt-1">
+              <span className="text-slate-500">Previsto (realizado + comprometido):</span>{" "}
+              <strong>{formatCurrency(previewCategoria.previsto)}</strong>
+              {previewCategoria.limite > 0 && (
+                <span className="text-xs text-slate-500">
+                  {" "}
+                  (
+                  {Math.min(
+                    (previewCategoria.previsto / previewCategoria.limite) * 100,
+                    999,
+                  ).toFixed(0)}
+                  % {isReceita ? "do planejado" : "do limite"})
+                </span>
+              )}
+            </p>
           </div>
         )}
         {contexto === "consolidado" && (

@@ -279,20 +279,29 @@ export async function getCompromissoContasPagarMes(
 ): Promise<number> {
   return withDatabase(async () => {
     const db = await getDatabase();
+    const inicioMes = `${mesReferencia}-01`;
+    // Mês de competência do orçamento + atrasados de meses anteriores ainda em aberto.
     let query = `SELECT COALESCE(SUM(valor), 0) as total
        FROM contas_a_pagar_receber
        WHERE tipo = 'pagar'
          AND status IN ('pendente', 'atrasado')
          AND categoria_id = $1
          AND contexto = $2
-         AND COALESCE(mes_referencia, substr(vencimento, 1, 7)) = $3`;
-    const params: unknown[] = [categoriaId, contexto, mesReferencia];
+         AND (
+           COALESCE(mes_referencia, substr(vencimento, 1, 7)) = $3
+           OR (
+             status = 'atrasado'
+             AND COALESCE(mes_referencia, substr(vencimento, 1, 7)) < $3
+             AND vencimento < $4
+           )
+         )`;
+    const params: unknown[] = [categoriaId, contexto, mesReferencia, inicioMes];
     if (excludeId) {
-      query += " AND id != $4";
+      query += " AND id != $5";
       params.push(excludeId);
     }
     const rows = await db.select<{ total: number }[]>(query, params);
-    return rows[0]?.total ?? 0;
+    return Number(rows[0]?.total ?? 0);
   });
 }
 
@@ -304,20 +313,28 @@ export async function getCompromissoContasReceberMes(
 ): Promise<number> {
   return withDatabase(async () => {
     const db = await getDatabase();
+    const inicioMes = `${mesReferencia}-01`;
     let query = `SELECT COALESCE(SUM(valor), 0) as total
        FROM contas_a_pagar_receber
        WHERE tipo = 'receber'
          AND status IN ('pendente', 'atrasado')
          AND categoria_id = $1
          AND contexto = $2
-         AND COALESCE(mes_referencia, substr(vencimento, 1, 7)) = $3`;
-    const params: unknown[] = [categoriaId, contexto, mesReferencia];
+         AND (
+           COALESCE(mes_referencia, substr(vencimento, 1, 7)) = $3
+           OR (
+             status = 'atrasado'
+             AND COALESCE(mes_referencia, substr(vencimento, 1, 7)) < $3
+             AND vencimento < $4
+           )
+         )`;
+    const params: unknown[] = [categoriaId, contexto, mesReferencia, inicioMes];
     if (excludeId) {
-      query += " AND id != $4";
+      query += " AND id != $5";
       params.push(excludeId);
     }
     const rows = await db.select<{ total: number }[]>(query, params);
-    return rows[0]?.total ?? 0;
+    return Number(rows[0]?.total ?? 0);
   });
 }
 

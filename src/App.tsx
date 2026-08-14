@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { ConfiguracoesContatosPage } from "./pages/ConfiguracoesContatosPage";
 import { ConfiguracoesDadosPage } from "./pages/ConfiguracoesDadosPage";
 import { ConfiguracoesSobrePage } from "./pages/ConfiguracoesSobrePage";
@@ -9,15 +9,22 @@ import { ConfiguracoesLayout, ConfiguracoesPerfilPage } from "./components/Confi
 import { Layout } from "./components/Layout";
 import { AprenderPage } from "./pages/AprenderPage";
 import { CategoriasPage } from "./pages/CategoriasPage";
+import { CartoesPage } from "./pages/CartoesPage";
 import { ContasPage } from "./pages/ContasPage";
 import { ContasPagarReceberPage } from "./pages/ContasPagarReceberPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DividasParceladasPage } from "./pages/DividasParceladasPage";
 import { FaturaCartaoPage } from "./pages/FaturaCartaoPage";
+import { ImpostosPage } from "./pages/ImpostosPage";
 import { MetasPage } from "./pages/MetasPage";
 import { OrcamentosPage } from "./pages/OrcamentosPage";
 import { RelatoriosPage } from "./pages/RelatoriosPage";
 import { TransacoesPage } from "./pages/TransacoesPage";
+
+function RedirectFaturaParaCartao() {
+  const { contaId } = useParams();
+  return <Navigate to={`/cartoes/${contaId ?? ""}`} replace />;
+}
 
 function App() {
   return (
@@ -28,7 +35,10 @@ function App() {
           <Route path="aprender" element={<AprenderPage />} />
           <Route path="transacoes" element={<TransacoesPage />} />
           <Route path="contas" element={<ContasPage />} />
+          <Route path="cartoes" element={<CartoesPage />} />
+          <Route path="cartoes/:contaId" element={<FaturaCartaoPage />} />
           <Route path="contas-pagar-receber" element={<ContasPagarReceberPage />} />
+          <Route path="impostos" element={<ImpostosPage />} />
           <Route path="dividas-parceladas" element={<DividasParceladasPage />} />
           <Route path="financiamentos" element={<Navigate to="/dividas-parceladas" replace />} />
           <Route path="emprestimos" element={<Navigate to="/dividas-parceladas" replace />} />
@@ -36,7 +46,7 @@ function App() {
           <Route path="metas" element={<MetasPage />} />
           <Route path="relatorios" element={<RelatoriosPage />} />
           <Route path="categorias" element={<CategoriasPage />} />
-          <Route path="faturas/:contaId" element={<FaturaCartaoPage />} />
+          <Route path="faturas/:contaId" element={<RedirectFaturaParaCartao />} />
           <Route path="configuracoes" element={<ConfiguracoesLayout />}>
             <Route index element={<Navigate to="perfil" replace />} />
             <Route path="perfil" element={<ConfiguracoesPerfilPage />} />

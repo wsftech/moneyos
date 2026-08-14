@@ -1,3 +1,5 @@
+import { todayIsoDate } from "./dates";
+
 /** Período de fatura do cartão para o mês de fechamento informado (YYYY-MM). */
 export function periodoFaturaCartao(
   mesFechamento: string,
@@ -19,8 +21,11 @@ export function periodoFaturaCartao(
       ? `${prevAno}-${String(prevMes).padStart(2, "0")}-${String(ultimoPrev).padStart(2, "0")}`
       : `${prevAno}-${String(prevMes).padStart(2, "0")}-${String(inicioDia).padStart(2, "0")}`;
 
-  const venc = new Date(ano, mes - 1, 1);
-  venc.setMonth(venc.getMonth() + 1);
+  // Vence no mês do fechamento quando o dia de vencimento é depois do fechamento
+  // (ex.: fecha 3, vence 7 → 07/09). Se o vencimento for no dia do fechamento ou
+  // antes, cai no mês seguinte (ex.: fecha 25, vence 10 → 10/10).
+  const mesmoMes = diaVencimento > diaFechamento;
+  const venc = new Date(ano, mes - 1 + (mesmoMes ? 0 : 1), 1);
   const vAno = venc.getFullYear();
   const vMes = venc.getMonth() + 1;
   const vDia = Math.min(diaVencimento, new Date(vAno, vMes, 0).getDate());
@@ -40,6 +45,6 @@ export function mesFechamentoParaData(data: string, diaFechamento: number): stri
 }
 
 export function mesFechamentoAtual(diaFechamento: number, hoje?: string): string {
-  const ref = hoje ?? new Date().toISOString().slice(0, 10);
+  const ref = hoje ?? todayIsoDate();
   return mesFechamentoParaData(ref, diaFechamento);
 }

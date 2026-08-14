@@ -55,6 +55,22 @@ export function getErrorMessage(error: unknown): string {
   return "Ocorreu um erro inesperado. Tente novamente.";
 }
 
+export function isUniqueConstraintError(error: unknown): boolean {
+  const parts: string[] = [];
+  if (error instanceof DatabaseError) {
+    parts.push(error.message);
+    if (error.cause != null) {
+      parts.push(error.cause instanceof Error ? error.cause.message : String(error.cause));
+    }
+  } else if (error instanceof Error) {
+    parts.push(error.message);
+  } else {
+    parts.push(String(error));
+  }
+  const raw = parts.join(" ");
+  return raw.includes("UNIQUE constraint failed") || raw.includes("Já existe um registro com estes dados");
+}
+
 export function toBoolean(value: number | boolean): boolean {
   return value === true || value === 1;
 }

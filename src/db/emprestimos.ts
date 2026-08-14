@@ -8,15 +8,17 @@ import {
   nowIso,
   toBoolean,
   withDatabase,
+  getErrorMessage,
 } from "./utils";
 import { addMonths, atualizarStatusParcela, mesFromDate, todayIsoDate } from "../utils/dates";
-import { arredondarMoeda, gerarValoresPrevistos } from "../utils/financiamentoCalc";
+import { arredondarMoeda, gerarValoresPrevistos, normalizarFaixaInicial, redistribuirPrevistosPendentes } from "../utils/financiamentoCalc";
 import type {
   Contexto,
   ContextoVisualizacao,
   Emprestimo,
   EmprestimoParcela,
   EmprestimoResumo,
+  ModalidadeEmprestimo,
   StatusParcelaEmprestimo,
 } from "../types";
 
@@ -33,6 +35,9 @@ export interface EmprestimoInput {
   data_primeira_parcela: string;
   ativo?: boolean;
   observacoes?: string | null;
+  modalidade?: ModalidadeEmprestimo;
+  faixa_inicial_qtd?: number | null;
+  faixa_inicial_valor?: number | null;
 }
 
 export interface PagamentoParcelaInput {
@@ -61,6 +66,9 @@ interface EmprestimoRow {
   data_primeira_parcela: string;
   ativo: number;
   observacoes: string | null;
+  modalidade: string | null;
+  faixa_inicial_qtd: number | null;
+  faixa_inicial_valor: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -78,8 +86,21 @@ interface ParcelaRow {
   observacoes: string | null;
 }
 
+function normalizarModalidade(value: string | null | undefined): ModalidadeEmprestimo {
+  return value === "parcelamento" ? "parcelamento" : "emprestimo";
+}
+
 function mapEmprestimo(row: EmprestimoRow): Emprestimo {
-  return { ...row, ativo: toBoolean(row.ativo) };
+  return {
+    ...row,
+    ativo: toBoolean(row.ativo),
+    modalidade: normalizarModalidade(row.modalidade),
+    faixa_inicial_qtd: row.faixa_inicial_qtd && row.faixa_inicial_qtd > 0 ? row.faixa_inicial_qtd : null,
+    faixa_inicial_valor:
+      row.faixa_inicial_valor != null && row.faixa_inicial_valor > 0
+        ? row.faixa_inicial_valor
+        : null,
+  };
 }
 
 function mapParcela(row: ParcelaRow): EmprestimoParcela {
@@ -92,9 +113,10 @@ async function gerarParcelas(
   valorParcela: number,
   totalParcelas: number,
   dataPrimeira: string,
+  faixa?: ReturnType<typeof normalizarFaixaInicial>,
 ): Promise<void> {
   const db = await getDatabase();
-  const valores = gerarValoresPrevistos(valorTotal, valorParcela, totalParcelas);
+  const valores = gerarValoresPrevistos(valorTotal, valorParcela, totalParcelas, faixa);
   for (let i = 0; i < totalParcelas; i++) {
     const vencimento = addMonths(dataPrimeira, i);
     const status = atualizarStatusParcela(vencimento, "pendente");
@@ -118,20 +140,19 @@ async function recalcularParcelasPendentes(fin: Emprestimo): Promise<void> {
 
   if (pendentes.length === 0) return;
 
-  for (let i = 0; i < pendentes.length; i++) {
-    let previsto = fin.valor_parcela;
-    if (pendentes.length === 1) {
-      previsto = saldoRestante;
-    } else if (i === pendentes.length - 1) {
-      const restante = arredondarMoeda(
-        saldoRestante - fin.valor_parcela * (pendentes.length - 1),
-      );
-      if (restante > 0) previsto = restante;
-    }
-    await db.execute(
-      "UPDATE emprestimo_parcelas SET valor_previsto = $1 WHERE id = $2",
-      [previsto, pendentes[i].id],
-    );
+  const faixa = normalizarFaixaInicial(fin.faixa_inicial_qtd, fin.faixa_inicial_valor);
+  const valoresOriginais = gerarValoresPrevistos(
+    fin.valor_total,
+    fin.valor_parcela,
+    fin.total_parcelas,
+    faixa,
+  );
+  const updates = redistribuirPrevistosPendentes(saldoRestante, pendentes, valoresOriginais);
+  for (const u of updates) {
+    await db.execute("UPDATE emprestimo_parcelas SET valor_previsto = $1 WHERE id = $2", [
+      u.previsto,
+      u.id,
+    ]);
   }
 }
 
@@ -159,15 +180,23 @@ async function calcularResumoEmprestimo(fin: Emprestimo): Promise<EmprestimoResu
 
 export async function listEmprestimos(
   contexto?: ContextoVisualizacao,
+  modalidade?: ModalidadeEmprestimo,
 ): Promise<EmprestimoResumo[]> {
   return withDatabase(async () => {
     const db = await getDatabase();
     const filter = buildContextoFilter(contexto);
-    const { query, params } = applyContextoFilter(
-      `SELECT * FROM emprestimos WHERE ativo = 1${filter.clause} ORDER BY descricao ASC`,
+    const { query: base, params } = applyContextoFilter(
+      `SELECT * FROM emprestimos WHERE ativo = 1${filter.clause}`,
       filter,
     );
-    const rows = await db.select<EmprestimoRow[]>(query, params);
+    const allParams = [...params];
+    let query = base;
+    if (modalidade) {
+      query += ` AND modalidade = $${allParams.length + 1}`;
+      allParams.push(modalidade);
+    }
+    query += " ORDER BY descricao ASC";
+    const rows = await db.select<EmprestimoRow[]>(query, allParams);
     return Promise.all(rows.map((r) => calcularResumoEmprestimo(mapEmprestimo(r))));
   });
 }
@@ -202,20 +231,25 @@ export async function listParcelas(emprestimoId: number): Promise<EmprestimoParc
 }
 
 export async function createEmprestimo(input: EmprestimoInput): Promise<EmprestimoResumo> {
+  const modalidade = input.modalidade === "parcelamento" ? "parcelamento" : "emprestimo";
   if (input.categoria_id == null) {
     throw new DatabaseError(
-      "Informe a categoria do orçamento (ex.: Empréstimo) para a parcela entrar no controle mensal.",
+      modalidade === "parcelamento"
+        ? "Informe a categoria do orçamento (ex.: Parcelamentos) para a parcela entrar no controle mensal."
+        : "Informe a categoria do orçamento (ex.: Empréstimo) para a parcela entrar no controle mensal.",
     );
   }
 
   const resumo = await withDatabase(async () => {
     const db = await getDatabase();
     const timestamp = nowIso();
+    const faixa = normalizarFaixaInicial(input.faixa_inicial_qtd, input.faixa_inicial_valor);
     const result = await db.execute(
       `INSERT INTO emprestimos
        (descricao, valor_total, valor_parcela, total_parcelas, contexto, conta_id,
-        categoria_id, data_primeira_parcela, ativo, observacoes, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        categoria_id, data_primeira_parcela, ativo, observacoes, modalidade,
+        faixa_inicial_qtd, faixa_inicial_valor, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
       [
         input.descricao,
         input.valor_total,
@@ -227,6 +261,9 @@ export async function createEmprestimo(input: EmprestimoInput): Promise<Empresti
         input.data_primeira_parcela,
         fromBoolean(input.ativo ?? true),
         input.observacoes ?? null,
+        modalidade,
+        faixa?.qtd ?? null,
+        faixa?.valor ?? null,
         timestamp,
         timestamp,
       ],
@@ -238,21 +275,19 @@ export async function createEmprestimo(input: EmprestimoInput): Promise<Empresti
       input.valor_parcela,
       input.total_parcelas,
       input.data_primeira_parcela,
+      faixa,
     );
     const fin = await getEmprestimo(id);
-    if (!fin) throw new DatabaseError("Falha ao criar empréstimo");
+    if (!fin) throw new DatabaseError("Falha ao criar dívida");
     return calcularResumoEmprestimo(fin);
   });
 
-  const { garantirOrcamentoParcelaDivida } = await import("./orcamentos");
-  const mesRef = input.data_primeira_parcela.slice(0, 7);
-  await garantirOrcamentoParcelaDivida({
-    descricao: input.descricao,
-    categoria_id: input.categoria_id,
-    contexto: input.contexto,
-    valor_parcela: input.valor_parcela,
-    mes_referencia: mesRef,
-  });
+  if (input.categoria_id != null) {
+    const { getCategoria } = await import("./categorias");
+    const { garantirOrcamentoCategoriaMes } = await import("./orcamentos");
+    const cat = await getCategoria(input.categoria_id);
+    if (cat) await garantirOrcamentoCategoriaMes(cat);
+  }
 
   return resumo;
 }
@@ -261,7 +296,7 @@ export async function updateEmprestimo(
   id: number,
   input: Partial<EmprestimoInput>,
 ): Promise<EmprestimoResumo> {
-  return withDatabase(async () => {
+  const resumo = await withDatabase(async () => {
     const existing = await getEmprestimo(id);
     if (!existing) throw new DatabaseError("Emprestimo não encontrado");
 
@@ -272,12 +307,19 @@ export async function updateEmprestimo(
     const db = await getDatabase();
     const novoTotal = input.valor_total ?? existing.valor_total;
     const novaParcelaRef = input.valor_parcela ?? existing.valor_parcela;
+    const novaFaixa = normalizarFaixaInicial(
+      input.faixa_inicial_qtd !== undefined ? input.faixa_inicial_qtd : existing.faixa_inicial_qtd,
+      input.faixa_inicial_valor !== undefined
+        ? input.faixa_inicial_valor
+        : existing.faixa_inicial_valor,
+    );
 
     await db.execute(
       `UPDATE emprestimos
        SET descricao = $1, valor_total = $2, valor_parcela = $3, conta_id = $4,
-           categoria_id = $5, ativo = $6, observacoes = $7, updated_at = $8
-       WHERE id = $9`,
+           categoria_id = $5, ativo = $6, observacoes = $7,
+           faixa_inicial_qtd = $8, faixa_inicial_valor = $9, updated_at = $10
+       WHERE id = $11`,
       [
         input.descricao ?? existing.descricao,
         novoTotal,
@@ -286,6 +328,8 @@ export async function updateEmprestimo(
         input.categoria_id !== undefined ? input.categoria_id : existing.categoria_id,
         fromBoolean(input.ativo ?? existing.ativo),
         input.observacoes !== undefined ? input.observacoes : existing.observacoes,
+        novaFaixa?.qtd ?? null,
+        novaFaixa?.valor ?? null,
         nowIso(),
         id,
       ],
@@ -296,13 +340,24 @@ export async function updateEmprestimo(
 
     if (
       (input.valor_total !== undefined && input.valor_total !== existing.valor_total) ||
-      (input.valor_parcela !== undefined && input.valor_parcela !== existing.valor_parcela)
+      (input.valor_parcela !== undefined && input.valor_parcela !== existing.valor_parcela) ||
+      input.faixa_inicial_qtd !== undefined ||
+      input.faixa_inicial_valor !== undefined
     ) {
       await recalcularParcelasPendentes(fin);
     }
 
     return calcularResumoEmprestimo(fin);
   });
+
+  if (resumo.categoria_id != null) {
+    const { getCategoria } = await import("./categorias");
+    const { garantirOrcamentoCategoriaMes } = await import("./orcamentos");
+    const cat = await getCategoria(resumo.categoria_id);
+    if (cat) await garantirOrcamentoCategoriaMes(cat);
+  }
+
+  return resumo;
 }
 
 export async function deleteEmprestimo(id: number): Promise<void> {
@@ -358,7 +413,7 @@ export async function pagarParcelas(
             conta_id: contaId,
             categoria_id: fin.categoria_id,
             contexto: fin.contexto,
-            observacoes: `Empréstimo #${fin.id}${desconto}`,
+            observacoes: `${fin.modalidade === "parcelamento" ? "Parcelamento" : "Empréstimo"} #${fin.id}${desconto}`,
           })
         : null;
 
@@ -398,6 +453,7 @@ export async function getCompromissoEmprestimosMes(
 ): Promise<number> {
   return withDatabase(async () => {
     const db = await getDatabase();
+    const inicioMes = `${mesReferencia}-01`;
     const rows = await db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(fp.valor_previsto), 0) as total
        FROM emprestimo_parcelas fp
@@ -406,8 +462,11 @@ export async function getCompromissoEmprestimosMes(
          AND f.categoria_id = $1
          AND f.contexto = $2
          AND fp.status IN ('pendente', 'atrasada')
-         AND fp.vencimento LIKE $3`,
-      [categoriaId, contexto, `${mesReferencia}%`],
+         AND (
+           fp.vencimento LIKE $3
+           OR (fp.status = 'atrasada' AND fp.vencimento < $4)
+         )`,
+      [categoriaId, contexto, `${mesReferencia}%`, inicioMes],
     );
     return rows[0]?.total ?? 0;
   });
@@ -427,6 +486,17 @@ export async function sincronizarStatusParcelas(emprestimoId?: number): Promise<
     }
     await db.execute(query, params);
   });
+}
+
+/**
+ * Antes gerava despesa sozinha no vencimento do parcelamento, inflando o caixa
+ * antes do pagamento real. Mantido como no-op — pague pela tela de Dívidas.
+ */
+export async function sincronizarLancamentosParcelamentos(
+  _contexto?: ContextoVisualizacao,
+): Promise<number> {
+  await sincronizarStatusParcelas();
+  return 0;
 }
 
 export async function reverterParcelaEmprestimoPorTransacao(transacaoId: number): Promise<void> {

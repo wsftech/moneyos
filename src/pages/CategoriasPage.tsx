@@ -9,9 +9,11 @@ import { useContexto } from "../contexts/ContextoContext";
 import {
   createCategoria,
   deleteCategoria,
+  getImpactoExclusaoCategoria,
   listCategorias,
   updateCategoria,
   type CategoriaInput,
+  type ImpactoExclusaoCategoria,
 } from "../db/categorias";
 import {
   importarTemplateCategorias,
@@ -73,10 +75,62 @@ export function CategoriasPage() {
     setModalOpen(true);
   }
 
-  async function handleDelete(id: number) {
-    if (!(await confirm("Excluir esta categoria?"))) return;
+  async function handleDelete(categoria: Categoria) {
+    let impacto: ImpactoExclusaoCategoria;
     try {
-      await deleteCategoria(id);
+      impacto = await getImpactoExclusaoCategoria(categoria.id);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      return;
+    }
+
+    const excluidos: string[] = [];
+    if (impacto.orcamentos > 0) {
+      excluidos.push(
+        `${impacto.orcamentos} orçamento(s) mensal(is)`,
+      );
+    }
+    if (impacto.orcamentoRecorrentes > 0) {
+      excluidos.push(
+        `${impacto.orcamentoRecorrentes} item(ns) de orçamento recorrente`,
+      );
+    }
+    if (impacto.regras > 0) {
+      excluidos.push(`${impacto.regras} regra(s) de categorização`);
+    }
+
+    const desvinculados =
+      impacto.transacoes +
+      impacto.emprestimos +
+      impacto.financiamentos +
+      impacto.contasPagarReceber +
+      impacto.transacoesRecorrentes;
+
+    const partes = [
+      `Excluir a categoria "${categoria.nome}"?`,
+      "",
+      excluidos.length > 0
+        ? `Serão excluídos junto com ela:\n• ${excluidos.join("\n• ")}`
+        : "Não há orçamentos nem regras vinculados.",
+    ];
+    if (desvinculados > 0) {
+      partes.push(
+        "",
+        "Transações, dívidas e lançamentos vinculados permanecerão, sem esta categoria.",
+      );
+    }
+
+    if (
+      !(await confirm({
+        title: "Excluir categoria",
+        message: partes.join("\n"),
+      }))
+    ) {
+      return;
+    }
+
+    try {
+      await deleteCategoria(categoria.id);
       await carregar();
     } catch (err) {
       setError(getErrorMessage(err));
@@ -128,7 +182,7 @@ export function CategoriasPage() {
             contexto={contexto}
             onNova={() => abrirModal("receita")}
             onEditar={(c) => abrirModal("receita", c)}
-            onExcluir={(id) => void handleDelete(id)}
+            onExcluir={(c) => void handleDelete(c)}
           />
           <CategoriaSecao
             titulo="Passivos"
@@ -138,7 +192,7 @@ export function CategoriasPage() {
             contexto={contexto}
             onNova={() => abrirModal("despesa")}
             onEditar={(c) => abrirModal("despesa", c)}
-            onExcluir={(id) => void handleDelete(id)}
+            onExcluir={(c) => void handleDelete(c)}
           />
         </div>
       )}
@@ -183,7 +237,7 @@ function CategoriaSecao({
   contexto: ContextoVisualizacao;
   onNova: () => void;
   onEditar: (c: Categoria) => void;
-  onExcluir: (id: number) => void;
+  onExcluir: (c: Categoria) => void;
 }) {
   return (
     <section
@@ -245,7 +299,7 @@ function CategoriaSecao({
                 <Button
                   variant="ghost"
                   className="px-2 py-1 text-rose-600"
-                  onClick={() => onExcluir(cat.id)}
+                  onClick={() => onExcluir(cat)}
                 >
                   Excluir
                 </Button>

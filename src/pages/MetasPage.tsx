@@ -8,7 +8,7 @@ import {
 import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
-import { Input, Select } from "../components/ui/FormFields";
+import { Input, Select, ValorInput } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
 import { listContas } from "../db/contas";
@@ -247,20 +247,16 @@ function MetaModal({
         {formError && <ErrorAlert message={formError} />}
         <Input label="Nome" value={nome} onChange={(e) => setNome(e.target.value)} required />
         <div className="grid gap-4 md:grid-cols-2">
-          <Input
+          <ValorInput
             label="Valor alvo"
-            type="number"
-            step="0.01"
             min="0"
             value={valorAlvo}
             onChange={(e) => setValorAlvo(e.target.value)}
             required
           />
           {!contaId && (
-            <Input
+            <ValorInput
               label="Valor atual (manual)"
-              type="number"
-              step="0.01"
               min="0"
               value={valorAtual}
               onChange={(e) => setValorAtual(e.target.value)}

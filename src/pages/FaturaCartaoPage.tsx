@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { CompraCartaoModal } from "../components/CompraCartaoModal";
+import { useConfirm } from "../components/ConfirmDialog";
 import { Button } from "../components/ui/Button";
 import { EmptyState, ErrorAlert, LoadingSpinner, PageHeader } from "../components/ui/Feedback";
-import { Input, Select } from "../components/ui/FormFields";
+import { Input, Select, ValorInput } from "../components/ui/FormFields";
 import { Modal } from "../components/ui/Modal";
 import { useContexto } from "../contexts/ContextoContext";
 import { getConta, listContas } from "../db/contas";
@@ -12,9 +14,15 @@ import {
   listFaturasCartao,
   pagarFaturaCartao,
 } from "../db/faturasCartao";
+import {
+  deleteCompraParceladaCartao,
+  deleteTransacao,
+  getTransacao,
+} from "../db/transacoes";
 import { getErrorMessage } from "../db/utils";
-import type { FaturaCartaoResumo, StatusFaturaCartao } from "../types";
+import type { Conta, FaturaCartaoResumo, StatusFaturaCartao, Transacao } from "../types";
 import { formatCurrency, formatDate, labelMes } from "../utils/format";
+import { mesFechamentoAtual } from "../utils/faturaCartao";
 
 function labelStatus(status: StatusFaturaCartao | undefined): string {
   switch (status) {
@@ -46,6 +54,7 @@ export function FaturaCartaoPage() {
   const { contaId } = useParams<{ contaId: string }>();
   const id = Number(contaId);
   const { contexto, loading: ctxLoading } = useContexto();
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [faturas, setFaturas] = useState<FaturaCartaoResumo[]>([]);
@@ -54,17 +63,21 @@ export function FaturaCartaoPage() {
   const [resumo, setResumo] = useState<Awaited<ReturnType<typeof getResumoCartaoCredito>>>(null);
   const [contasBanco, setContasBanco] = useState<Awaited<ReturnType<typeof listContas>>>([]);
   const [pagarModal, setPagarModal] = useState(false);
+  const [compraModal, setCompraModal] = useState(false);
+  const [editing, setEditing] = useState<Transacao | null>(null);
+  const [conta, setConta] = useState<Conta | null>(null);
 
   const carregar = useCallback(async () => {
     if (!id || isNaN(id)) return;
     setLoading(true);
     setError(null);
     try {
-      const conta = await getConta(id);
-      if (!conta || conta.tipo !== "cartao_credito") {
+      const contaDb = await getConta(id);
+      if (!contaDb || contaDb.tipo !== "cartao_credito") {
         setError("Cartão não encontrado.");
         return;
       }
+      setConta(contaDb);
       const [lista, r, contas] = await Promise.all([
         listFaturasCartao(id, 8),
         getResumoCartaoCredito(id),
@@ -74,14 +87,19 @@ export function FaturaCartaoPage() {
       setResumo(r);
       setContasBanco(
         contas.filter(
-          (c) => c.tipo !== "cartao_credito" && c.contexto === conta.contexto,
+          (c) => c.tipo !== "cartao_credito" && c.contexto === contaDb.contexto,
         ),
       );
-      const mes = lista[0]?.mes_referencia || "";
+      const mesAtualCiclo = contaDb.dia_fechamento
+        ? mesFechamentoAtual(contaDb.dia_fechamento)
+        : "";
+      const mes = mesAtualCiclo || lista[0]?.mes_referencia || "";
       if (mes) {
         const fat = await getFaturaCartao(id, mes);
         setFaturaAtual(fat);
-        setMesSelecionado((prev) => prev || mes);
+        setMesSelecionado((prev) =>
+          prev && lista.some((f) => f.mes_referencia === prev) ? prev : mes,
+        );
       }
     } catch (err) {
       setError(getErrorMessage(err));
@@ -99,12 +117,83 @@ export function FaturaCartaoPage() {
     void getFaturaCartao(id, mesSelecionado).then(setFaturaAtual);
   }, [id, mesSelecionado]);
 
+  async function recarregarFaturaAtual() {
+    if (!id || isNaN(id)) return;
+    try {
+      const [lista, r] = await Promise.all([
+        listFaturasCartao(id, 8),
+        getResumoCartaoCredito(id),
+      ]);
+      setFaturas(lista);
+      setResumo(r);
+      const mesAtualCiclo = conta?.dia_fechamento
+        ? mesFechamentoAtual(conta.dia_fechamento)
+        : "";
+      const mes =
+        (mesSelecionado && lista.some((f) => f.mes_referencia === mesSelecionado)
+          ? mesSelecionado
+          : mesAtualCiclo) ||
+        lista[0]?.mes_referencia ||
+        "";
+      if (mes !== mesSelecionado) setMesSelecionado(mes);
+      setFaturaAtual(mes ? await getFaturaCartao(id, mes) : null);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }
+
+  async function handleEditar(itemId: number) {
+    try {
+      const t = await getTransacao(itemId);
+      if (!t) {
+        setError("Lançamento não encontrado.");
+        return;
+      }
+      setEditing(t);
+      setCompraModal(true);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }
+
+  async function handleExcluir(item: FaturaCartaoResumo["itens"][number]) {
+    const parcelada = item.parcela_total != null && item.parcela_total > 1 && item.compra_parcelada_id;
+    const ok = await confirm({
+      title: "Excluir lançamento",
+      message: parcelada
+        ? `Excluir a parcela ${item.parcela_numero}/${item.parcela_total} (${item.descricao})?`
+        : `Excluir a compra "${item.descricao}"?`,
+    });
+    if (!ok) return;
+
+    let excluirTodas = false;
+    if (parcelada && item.compra_parcelada_id) {
+      excluirTodas = await confirm({
+        title: "Compra parcelada",
+        message: "Excluir todas as parcelas desta compra ou somente esta?",
+        confirmLabel: "Excluir todas",
+        cancelLabel: "Somente esta",
+      });
+    }
+
+    try {
+      if (excluirTodas && item.compra_parcelada_id) {
+        await deleteCompraParceladaCartao(item.compra_parcelada_id);
+      } else {
+        await deleteTransacao(item.id);
+      }
+      await recarregarFaturaAtual();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }
+
   if (!id || isNaN(id)) {
     return <ErrorAlert message="ID de cartão inválido." />;
   }
 
   if (loading || ctxLoading) return <LoadingSpinner />;
-  if (error) return <ErrorAlert message={error} />;
+  if (error && !conta) return <ErrorAlert message={error} />;
 
   const pendente =
     faturaAtual != null
@@ -115,14 +204,37 @@ export function FaturaCartaoPage() {
   return (
     <div>
       <PageHeader
-        title={resumo?.conta_nome ?? "Cartão"}
-        subtitle="Faturas, limite e pagamento"
+        title={
+          resumo?.conta_nome
+            ? conta?.final_cartao
+              ? `${resumo.conta_nome} •••• ${conta.final_cartao}`
+              : resumo.conta_nome
+            : "Cartão"
+        }
+        subtitle="Faturas, compras e limite — gastos entram no orçamento da categoria"
         action={
-          <Link to="/contas">
-            <Button variant="secondary">← Voltar às contas</Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link to="/cartoes">
+              <Button variant="secondary">← Cartões</Button>
+            </Link>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setEditing(null);
+                setCompraModal(true);
+              }}
+            >
+              + Compra
+            </Button>
+          </div>
         }
       />
+
+      {error && conta && (
+        <div className="mb-4">
+          <ErrorAlert message={error} />
+        </div>
+      )}
 
       {resumo && (
         <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -152,7 +264,9 @@ export function FaturaCartaoPage() {
             <p className="text-xs text-slate-500">Fatura selecionada</p>
             <p className="text-xl font-bold text-slate-900">{formatCurrency(pendente)}</p>
             {faturaAtual && (
-              <p className="mt-1 text-xs text-slate-500">Vence {formatDate(faturaAtual.vencimento)}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Fecha {formatDate(faturaAtual.periodo_fim)} · vence {formatDate(faturaAtual.vencimento)}
+              </p>
             )}
           </div>
         </div>
@@ -166,7 +280,7 @@ export function FaturaCartaoPage() {
             onChange={(e) => setMesSelecionado(e.target.value)}
             options={faturas.map((f) => ({
               value: f.mes_referencia,
-              label: `${labelMes(f.mes_referencia)} · ${labelStatus(f.status)}`,
+              label: `${labelMes(f.mes_referencia)} · fecha ${formatDate(f.periodo_fim)}`,
             }))}
           />
         </div>
@@ -197,28 +311,55 @@ export function FaturaCartaoPage() {
               <tr>
                 <th className="px-4 py-3 font-medium">Data</th>
                 <th className="px-4 py-3 font-medium">Descrição</th>
+                <th className="px-4 py-3 font-medium">Categoria</th>
                 <th className="px-4 py-3 font-medium text-right">Valor</th>
+                <th className="px-4 py-3 font-medium text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {faturaAtual.itens.map((item) => (
                 <tr key={item.id} className="app-table-row">
                   <td className="px-4 py-3 whitespace-nowrap">{formatDate(item.data)}</td>
-                  <td className="px-4 py-3">{item.descricao}</td>
+                  <td className="px-4 py-3">
+                    {item.descricao}
+                    {item.parcela_total != null && item.parcela_total > 1 && (
+                      <span className="ml-2 text-xs text-slate-400">
+                        {item.parcela_numero}/{item.parcela_total}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">{item.categoria_nome ?? "—"}</td>
                   <td className="px-4 py-3 text-right font-medium text-rose-700">
                     {formatCurrency(item.valor)}
+                  </td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <Button
+                      variant="ghost"
+                      className="px-2 py-1 text-xs"
+                      onClick={() => void handleEditar(item.id)}
+                    >
+                      Editar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="px-2 py-1 text-xs text-rose-600"
+                      onClick={() => void handleExcluir(item)}
+                    >
+                      Excluir
+                    </Button>
                   </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr className="border-t border-slate-200 font-semibold">
-                <td colSpan={2} className="px-4 py-3 text-right text-slate-600">
+                <td colSpan={3} className="px-4 py-3 text-right text-slate-600">
                   Total
                 </td>
                 <td className="px-4 py-3 text-right text-slate-900">
                   {formatCurrency(faturaAtual.total)}
                 </td>
+                <td />
               </tr>
             </tfoot>
           </table>
@@ -226,9 +367,26 @@ export function FaturaCartaoPage() {
       )}
 
       <p className="mt-4 text-xs text-slate-500">
-        Compras no cartão entram no orçamento na data da compra. O pagamento da fatura é uma
-        transferência banco → cartão e não duplica despesas no P&L.
+        Cada compra no cartão consome o orçamento da categoria no mês da compra. O pagamento da
+        fatura é uma transferência banco → cartão e não duplica a despesa.
       </p>
+
+      {conta && (
+        <CompraCartaoModal
+          open={compraModal}
+          onClose={() => {
+            setCompraModal(false);
+            setEditing(null);
+          }}
+          cartao={conta}
+          transacao={editing}
+          onSaved={() => {
+            setCompraModal(false);
+            setEditing(null);
+            void recarregarFaturaAtual();
+          }}
+        />
+      )}
 
       {faturaAtual?.id && (
         <PagarFaturaModal
@@ -321,10 +479,8 @@ function PagarFaturaModal({
         />
         <div className="grid gap-4 md:grid-cols-2">
           <Input label="Data do pagamento" type="date" value={data} onChange={(e) => setData(e.target.value)} />
-          <Input
+          <ValorInput
             label="Valor"
-            type="number"
-            step="0.01"
             min="0"
             max={pendente}
             value={valor}
