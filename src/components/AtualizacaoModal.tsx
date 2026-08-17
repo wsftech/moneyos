@@ -78,7 +78,7 @@ export function AtualizacaoModal({
           <p className="text-xs text-slate-500">
             {progresso.fase === "baixando"
               ? "Baixando a atualização. O app permanece aberto nesta etapa."
-              : "Instalando… O aplicativo será fechado. Se uma barra de progresso aparecer, aguarde. Se o app não reabrir, use o atalho no menu Iniciar."}
+              : "Instalando… O aplicativo será fechado. Se uma barra de progresso aparecer, aguarde. Se o app não reabrir, use o atalho no menu Iniciar ou execute WSF Money em %LocalAppData%\\WSF Money\\financas.exe."}
           </p>
         </div>
       )}

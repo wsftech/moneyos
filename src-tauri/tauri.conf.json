@@ -72,10 +72,7 @@
         "https://github.com/wsftech/moneyos/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "basicUi",
-        "installerArgs": [
-          "/P"
-        ]
+        "installMode": "passive"
       }
     }
   }

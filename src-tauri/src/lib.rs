@@ -208,45 +208,64 @@ fn fechar_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
 /// Cobre: instalador bloqueado, relaunch NSIS falhou, ou ShellExecute do updater falhou
 /// (o plugin mesmo assim encerra o processo).
 ///
-/// Não usar `cmd /C start "" "…"`: com path em `%LOCALAPPDATA%\WSF Money\…` o quoting do
-/// CreateProcess + DETACHED quebra e o Windows mostra “não pode localizar \\”.
+/// Não passar o path com espaços direto ao CreateProcess: grave um .cmd no TEMP
+/// e solte o helper do job do WebView2 (CREATE_BREAKAWAY_FROM_JOB).
 #[tauri::command]
 fn agendar_reopen_apos_update() -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        use std::process::Command;
+        agendar_reopen_apos_update_windows()?;
+    }
+    Ok(())
+}
 
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        // Single-quoted PowerShell literal; escape embedded quotes.
-        let exe_lit = exe.to_string_lossy().replace('\'', "''");
+#[cfg(windows)]
+fn agendar_reopen_apos_update_windows() -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
 
-        // DETACHED para sobreviver ao process::exit do plugin updater.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        const FLAGS: u32 = CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_str = exe.to_string_lossy().replace(['"', '&', '|', '>', '<'], "");
+    let cmd_path = std::env::temp_dir().join("wsf-money-reopen-after-update.cmd");
+    let script = format!(
+        "@echo off\r\n\
+         ping -n 16 127.0.0.1 >nul\r\n\
+         call :try_open\r\n\
+         ping -n 16 127.0.0.1 >nul\r\n\
+         call :try_open\r\n\
+         ping -n 21 127.0.0.1 >nul\r\n\
+         call :try_open\r\n\
+         exit /b 0\r\n\
+         :try_open\r\n\
+         tasklist /FI \"IMAGENAME eq financas.exe\" | find /I \"financas.exe\" >nul\r\n\
+         if not errorlevel 1 exit /b 0\r\n\
+         if not exist \"{exe_str}\" exit /b 0\r\n\
+         start \"\" \"{exe_str}\"\r\n\
+         exit /b 0\r\n"
+    );
+    fs::write(&cmd_path, script).map_err(|e| format!("Falha ao gravar helper de reopen: {e}"))?;
 
-        // LiteralPath lida com espaços no productName; sem `start` do cmd.
-        let script = format!(
-            "Start-Sleep -Seconds 18; \
-             if (-not (Get-Process -Name 'financas' -ErrorAction SilentlyContinue)) {{ \
-               Start-Process -LiteralPath '{exe_lit}' \
-             }}"
-        );
+    let cmd_arg = cmd_path
+        .to_str()
+        .ok_or_else(|| "Caminho temporário inválido".to_string())?;
 
-        Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                &script,
-            ])
-            .creation_flags(FLAGS)
+    // BREAKAWAY: o job do WebView2 mata filhos no process::exit do updater.
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const FLAGS: u32 =
+        CREATE_BREAKAWAY_FROM_JOB | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW;
+
+    let spawn = |flags: u32| {
+        Command::new("cmd.exe")
+            .args(["/C", cmd_arg])
+            .creation_flags(flags)
             .spawn()
+    };
+
+    if spawn(FLAGS).is_err() {
+        spawn(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW)
             .map_err(|e| format!("Falha ao agendar reabertura: {e}"))?;
     }
     Ok(())

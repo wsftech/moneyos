@@ -1,28 +1,27 @@
 ; Hooks do instalador NSIS — update in-app no Windows.
 ;
 ; O plugin updater faz ShellExecute do setup e em seguida process::exit.
-; Sem espera, o NSIS pode tentar sobrescrever financas.exe ainda bloqueado.
+; Builds antigas passam só /P (sem /R). O .onInstSuccess do Tauri só reabre
+; com /R, então o POSTINSTALL precisa relançar sempre no update/passive.
 
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "Encerrando WSF Money antes de atualizar..."
-  ; /T mata a árvore (WebView2). Código ≠ 0 é ok se o processo já saiu.
-  ExecWait 'taskkill /F /T /IM financas.exe'
-  Sleep 2500
+  ; Sem /T: o watchdog de reabertura fica fora da árvore e não deve ser morto.
+  ExecWait 'taskkill /F /IM ${MAINBINARYNAME}.exe'
+  ExecWait 'taskkill /F /IM financas.exe'
+  Sleep 2000
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; NÃO usar "cmd /C ping ... & start" — o instalador fecha em modo /P e
-  ; mata o cmd filho antes do delay, então o app nunca reabre.
-  ; RunAsUser lança processo independente (mesmo mecanismo do /R do Tauri).
-  ; Binário explícito (Cargo name): evita MAINBINARYNAME vazio / path quebrado.
-  ${If} $PassiveMode = 1
-  ${OrIf} $UpdateMode = 1
+  ${If} $UpdateMode = 1
+  ${OrIf} $PassiveMode = 1
+  ${OrIf} ${Silent}
     DetailPrint "Reabrindo WSF Money..."
-    IfFileExists "$INSTDIR\financas.exe" 0 wsf_reopen_fallback
-      nsis_tauri_utils::RunAsUser "$INSTDIR\financas.exe" ""
-      Goto wsf_reopen_done
-    wsf_reopen_fallback:
-      nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
+    SetOutPath "$INSTDIR"
+    ; ExecShell sobrevive ao SetAutoClose do /P. Não exigir /R.
+    IfFileExists "$INSTDIR\${MAINBINARYNAME}.exe" 0 wsf_reopen_done
+      ExecShell "open" "$INSTDIR\${MAINBINARYNAME}.exe"
+      Sleep 1200
     wsf_reopen_done:
   ${EndIf}
 !macroend
