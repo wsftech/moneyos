@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { AtualizacaoModal } from "./AtualizacaoModal";
+import { AtualizacaoToast } from "./AtualizacaoToast";
 import {
   baixarEInstalarAtualizacao,
   dismissAtualizacao,
@@ -97,9 +98,18 @@ export function AtualizacaoProvider({ children }: { children: ReactNode }) {
   return (
     <AtualizacaoContext.Provider value={value}>
       {children}
+      <AtualizacaoToast
+        open={fase === "disponivel"}
+        versao={versao}
+        notas={notas}
+        onAtualizar={() => {
+          if (versao) void executarInstalacao(versao, notas);
+        }}
+        onDepois={depois}
+      />
       <AtualizacaoModal
-        open={fase !== "fechado"}
-        modo={fase === "fechado" ? "disponivel" : fase}
+        open={fase === "progresso" || fase === "erro"}
+        modo={fase === "erro" ? "erro" : "progresso"}
         versao={versao}
         notas={notas}
         progresso={progresso}
@@ -120,7 +130,7 @@ export function AtualizacaoBackgroundCheck() {
   useEffect(() => {
     const t = window.setTimeout(() => {
       void verificarEmBackground();
-    }, 2500);
+    }, 800);
     return () => window.clearTimeout(t);
   }, [verificarEmBackground]);
   return null;

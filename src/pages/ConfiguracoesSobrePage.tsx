@@ -72,8 +72,8 @@ export function ConfiguracoesSobrePage() {
       <section className="app-card p-5">
         <h2 className="font-semibold text-slate-900">Atualizações</h2>
         <p className="mt-2 text-sm text-slate-500">
-          O app verifica novas versões automaticamente ao iniciar. Você também pode verificar
-          manualmente aqui.
+          O app verifica novas versões automaticamente ao iniciar e mostra um aviso no canto da
+          tela, com o botão para atualizar agora. Você também pode verificar manualmente aqui.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
