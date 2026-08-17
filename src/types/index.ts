@@ -357,6 +357,8 @@ export interface FaturaCartaoResumo {
   conta_id: number;
   conta_nome: string;
   mes_referencia: string;
+  /** Mês das compras (ex.: fecha 03/09 → agosto), para exibição. */
+  mes_competencia: string;
   periodo_inicio: string;
   periodo_fim: string;
   vencimento: string;
@@ -377,7 +379,7 @@ export interface FaturaCartaoResumo {
   }[];
 }
 
-export type StatusFaturaCartao = "aberta" | "fechada" | "paga";
+export type StatusFaturaCartao = "aberta" | "fechada" | "futura" | "paga";
 
 export interface ResumoCartaoCredito {
   conta_id: number;

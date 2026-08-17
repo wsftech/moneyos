@@ -407,6 +407,9 @@ export function TransacoesPage() {
                       {item.faturaResumo?.status === "fechada" && (
                         <span className="ml-2 text-xs font-normal text-amber-700">Fechada</span>
                       )}
+                      {item.faturaResumo?.status === "futura" && (
+                        <span className="ml-2 text-xs font-normal text-slate-500">Fatura futura</span>
+                      )}
                     </div>
                     {(tagsPorTransacao.get(t.id) ?? []).length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">

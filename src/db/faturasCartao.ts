@@ -10,12 +10,16 @@ import type {
   StatusFaturaCartao,
 } from "../types";
 import {
+  dataCicloParcelaCartao,
+  mesCompetenciaFatura,
   mesFechamentoAtual,
   mesFechamentoParaData,
   periodoFaturaCartao,
+  statusFaturaPersistido,
+  statusFaturaPorPeriodo,
 } from "../utils/faturaCartao";
 import { todayIsoDate } from "../utils/dates";
-import { arredondarMoeda } from "../utils/format";
+import { arredondarMoeda, labelMes } from "../utils/format";
 
 interface FaturaRow {
   id: number;
@@ -31,16 +35,6 @@ interface FaturaRow {
   transacao_pagamento_id: number | null;
 }
 
-function calcularStatusFatura(
-  row: Pick<FaturaRow, "status" | "periodo_fim" | "valor_pago" | "total">,
-  hoje: string,
-): StatusFaturaCartao {
-  if (row.status === "paga" || (row.valor_pago != null && row.valor_pago >= row.total && row.total > 0)) {
-    return "paga";
-  }
-  if (hoje > row.periodo_fim) return "fechada";
-  return "aberta";
-}
 
 async function recalcularTotalFatura(db: Awaited<ReturnType<typeof getDatabase>>, faturaId: number) {
   const rows = await db.select<{ total: number }[]>(
@@ -137,14 +131,15 @@ export async function sincronizarFaturaCartao(
          AND status = 'efetivado'
          AND fatura_cartao_id IS NULL
          AND pagamento_fatura_id IS NULL
+         AND compra_parcelada_id IS NULL
          AND data >= $3
-         AND data <= $4`,
+         AND data < $4`,
       [fatura.id, contaId, fatura.periodo_inicio, fatura.periodo_fim],
     );
 
     const total = await recalcularTotalFatura(db, fatura.id);
     const hoje = todayIsoDate();
-    const status = calcularStatusFatura({ ...fatura, total }, hoje);
+    const status = statusFaturaPersistido({ ...fatura, total }, hoje);
 
     await db.execute(
       `UPDATE faturas_cartao SET status = $1, updated_at = $2 WHERE id = $3`,
@@ -157,6 +152,56 @@ export async function sincronizarFaturaCartao(
 
 const syncPorConta = new Map<number, Promise<void>>();
 
+async function religarComprasAoCicloFatura(contaId: number): Promise<void> {
+  const conta = await getConta(contaId);
+  if (!conta?.dia_fechamento) return;
+  const diaFechamento = conta.dia_fechamento;
+
+  const db = await getDatabase();
+  const compras = await db.select<
+    {
+      id: number;
+      data: string;
+      parcela_numero: number | null;
+      fatura_cartao_id: number | null;
+      fatura_mes: string | null;
+    }[]
+  >(
+    `SELECT t.id, t.data, t.parcela_numero, t.fatura_cartao_id,
+            f.mes_referencia AS fatura_mes
+     FROM transacoes t
+     LEFT JOIN faturas_cartao f ON f.id = t.fatura_cartao_id
+     WHERE t.conta_id = $1
+       AND t.tipo = 'despesa'
+       AND t.status = 'efetivado'
+       AND t.pagamento_fatura_id IS NULL`,
+    [contaId],
+  );
+
+  const faturasAntigas = new Set<number>();
+  for (const compra of compras) {
+    const dataCiclo = dataCicloParcelaCartao(compra.data, compra.parcela_numero);
+    const mesEsperado = mesFechamentoParaData(dataCiclo, diaFechamento);
+    if (compra.fatura_mes === mesEsperado) continue;
+    if (compra.fatura_cartao_id) faturasAntigas.add(compra.fatura_cartao_id);
+    await vincularCompraAFatura(compra.id, contaId, compra.data);
+  }
+  for (const faturaId of faturasAntigas) {
+    await recalcularFaturaPorId(faturaId);
+  }
+}
+
+async function atualizarPeriodosFaturasConta(contaId: number): Promise<void> {
+  const db = await getDatabase();
+  const meses = await db.select<{ mes_referencia: string }[]>(
+    "SELECT mes_referencia FROM faturas_cartao WHERE conta_id = $1",
+    [contaId],
+  );
+  for (const row of meses) {
+    await ensureFaturaRecord(contaId, row.mes_referencia);
+  }
+}
+
 export async function sincronizarFaturasCartaoConta(contaId: number): Promise<void> {
   const emAndamento = syncPorConta.get(contaId);
   if (emAndamento) {
@@ -167,6 +212,11 @@ export async function sincronizarFaturasCartaoConta(contaId: number): Promise<vo
   const run = (async () => {
     const conta = await getConta(contaId);
     if (!conta?.dia_fechamento) return;
+
+    const { alinharDatasCompraParceladaConta } = await import("./transacoes");
+    await alinharDatasCompraParceladaConta(contaId);
+    await atualizarPeriodosFaturasConta(contaId);
+    await religarComprasAoCicloFatura(contaId);
 
     const mesAtualRef = mesFechamentoAtual(conta.dia_fechamento);
     const [y, m] = mesAtualRef.split("-").map(Number);
@@ -246,18 +296,19 @@ async function buildFaturaResumo(faturaId: number): Promise<FaturaCartaoResumo |
        FROM transacoes t
        LEFT JOIN categorias c ON c.id = t.categoria_id
        WHERE t.fatura_cartao_id = $1 AND t.tipo = 'despesa'
-       ORDER BY t.data ASC, t.id ASC`,
+       ORDER BY t.data ASC, t.parcela_numero ASC, t.id ASC`,
       [faturaId],
     );
 
     const hoje = todayIsoDate();
-    const status = calcularStatusFatura(fatura, hoje);
+    const status = statusFaturaPorPeriodo(fatura, hoje);
 
     return {
       id: fatura.id,
       conta_id: fatura.conta_id,
       conta_nome: conta?.nome ?? "",
       mes_referencia: fatura.mes_referencia,
+      mes_competencia: mesCompetenciaFatura(fatura.periodo_inicio, fatura.periodo_fim),
       periodo_inicio: fatura.periodo_inicio,
       periodo_fim: fatura.periodo_fim,
       vencimento: fatura.vencimento,
@@ -296,21 +347,41 @@ export async function getFaturaCartao(
 
 export async function listFaturasCartao(
   contaId: number,
-  limite = 6,
-  opts?: { sincronizar?: boolean },
+  limite?: number,
+  opts?: { sincronizar?: boolean; ordem?: "asc" | "desc"; ateMes?: string },
 ): Promise<FaturaCartaoResumo[]> {
   if (opts?.sincronizar !== false) {
     await sincronizarFaturasCartaoConta(contaId);
   }
+  const conta = await getConta(contaId);
+  const mesAtual = conta?.dia_fechamento
+    ? mesFechamentoAtual(conta.dia_fechamento)
+    : "";
+
   return withDatabase(async () => {
     const db = await getDatabase();
-    const rows = await db.select<{ id: number }[]>(
-      `SELECT id FROM faturas_cartao
+    const ordem = opts?.ordem === "desc" ? "DESC" : "ASC";
+    const params: unknown[] = [contaId, mesAtual];
+    let sql = `SELECT id FROM faturas_cartao
        WHERE conta_id = $1
-       ORDER BY mes_referencia DESC
-       LIMIT $2`,
-      [contaId, limite],
-    );
+         AND (
+           mes_referencia = $2
+           OR (valor_pago IS NOT NULL AND valor_pago > 0)
+           OR transacao_pagamento_id IS NOT NULL
+           OR EXISTS (
+             SELECT 1 FROM transacoes t WHERE t.fatura_cartao_id = faturas_cartao.id
+           )
+         )`;
+    if (opts?.ateMes) {
+      params.push(opts.ateMes);
+      sql += ` AND mes_referencia <= $${params.length}`;
+    }
+    sql += ` ORDER BY mes_referencia ${ordem}`;
+    if (limite != null && limite > 0) {
+      params.push(limite);
+      sql += ` LIMIT $${params.length}`;
+    }
+    const rows = await db.select<{ id: number }[]>(sql, params);
     const faturas = await Promise.all(rows.map((r) => buildFaturaResumo(r.id)));
     return faturas.filter((f): f is FaturaCartaoResumo => f != null);
   });
@@ -339,7 +410,7 @@ function faturaEntraNoPeriodo(
   if (f.vencimento >= dataInicio && f.vencimento <= dataFim) return true;
   if (f.periodo_fim >= dataInicio && f.periodo_fim <= dataFim) return true;
   return (
-    f.status === "aberta" &&
+    (f.status === "aberta" || f.status === "futura") &&
     f.periodo_inicio <= dataFim &&
     f.periodo_fim >= dataInicio
   );
@@ -358,7 +429,7 @@ export async function listFaturasParaLancamentos(
   const resultado: { fatura: FaturaCartaoResumo; contexto: Contexto }[] = [];
   for (const c of cartoes) {
     await sincronizarFaturasCartaoConta(c.id);
-    const lista = await listFaturasCartao(c.id, 24, { sincronizar: false });
+    const lista = await listFaturasCartao(c.id, undefined, { sincronizar: false });
     for (const f of lista) {
       if (f.total <= 0) continue;
       if (!faturaEntraNoPeriodo(f, dataInicio, dataFim)) continue;
@@ -379,7 +450,7 @@ export async function listFaturasPendentesContexto(
   const faturas: FaturaCartaoResumo[] = [];
   for (const c of cartoes) {
     await sincronizarFaturasCartaoConta(c.id);
-    const lista = await listFaturasCartao(c.id, 12, { sincronizar: false });
+    const lista = await listFaturasCartao(c.id, undefined, { sincronizar: false });
     for (const f of lista) {
       const pendente = f.total - (f.valor_pago ?? 0);
       if (f.status !== "paga" && pendente > 0) faturas.push(f);
@@ -391,12 +462,18 @@ export async function listFaturasPendentesContexto(
 export async function vincularCompraAFatura(
   transacaoId: number,
   contaId: number,
-  data: string,
+  dataCompra?: string,
 ): Promise<void> {
   const conta = await getConta(contaId);
   if (!conta?.dia_fechamento || conta.tipo !== "cartao_credito") return;
 
-  const mesRef = mesFechamentoParaData(data, conta.dia_fechamento);
+  const { getTransacao } = await import("./transacoes");
+  const transacao = await getTransacao(transacaoId);
+  const compra = dataCompra ?? transacao?.data;
+  if (!compra) return;
+  const dataCiclo = dataCicloParcelaCartao(compra, transacao?.parcela_numero);
+
+  const mesRef = mesFechamentoParaData(dataCiclo, conta.dia_fechamento);
   await sincronizarFaturaCartao(contaId, mesRef);
 
   const db = await getDatabase();
@@ -453,7 +530,7 @@ export async function pagarFaturaCartao(input: PagarFaturaInput): Promise<Fatura
     if (valorPagar <= 0) throw new Error("Não há valor pendente nesta fatura.");
 
     const { saida, entrada } = await createTransferencia({
-      descricao: `Pagamento fatura ${cartao.nome} · ${fatura.mes_referencia}`,
+      descricao: `Pagamento fatura ${cartao.nome} · ${labelMes(mesCompetenciaFatura(fatura.periodo_inicio, fatura.periodo_fim))}`,
       valor: valorPagar,
       data: input.data,
       conta_origem_id: input.contaOrigemId,

@@ -22,7 +22,35 @@ import {
 import { getErrorMessage } from "../db/utils";
 import type { Conta, FaturaCartaoResumo, StatusFaturaCartao, Transacao } from "../types";
 import { formatCurrency, formatDate, labelMes } from "../utils/format";
-import { mesFechamentoAtual } from "../utils/faturaCartao";
+import {
+  dataCicloParcelaCartao,
+  mesCompetenciaParaData,
+  mesFechamentoAtual,
+  ultimoDiaComprasFatura,
+} from "../utils/faturaCartao";
+
+type AbaFatura = "todos" | "a_vista" | "parceladas";
+type ItemFatura = FaturaCartaoResumo["itens"][number];
+
+function ehCompraParcelada(item: ItemFatura): boolean {
+  return (item.parcela_total ?? 0) > 1;
+}
+
+function descricaoItemFatura(item: ItemFatura): string {
+  const limpa = item.descricao.replace(/\s*\(\d+\s*\/\s*\d+\)\s*$/, "").trim();
+  return limpa || item.descricao;
+}
+
+function previsaoConclusaoParcela(
+  dataCompra: string,
+  parcelaTotal: number,
+  diaFechamento: number,
+): string {
+  return mesCompetenciaParaData(
+    dataCicloParcelaCartao(dataCompra, parcelaTotal),
+    diaFechamento,
+  );
+}
 
 function labelStatus(status: StatusFaturaCartao | undefined): string {
   switch (status) {
@@ -30,6 +58,8 @@ function labelStatus(status: StatusFaturaCartao | undefined): string {
       return "Em aberto";
     case "fechada":
       return "Fechada";
+    case "futura":
+      return "Futura";
     case "paga":
       return "Paga";
     default:
@@ -43,6 +73,8 @@ function statusClass(status: StatusFaturaCartao | undefined): string {
       return "bg-teal-50 text-teal-800 ring-1 ring-teal-200";
     case "fechada":
       return "bg-amber-50 text-amber-800 ring-1 ring-amber-200";
+    case "futura":
+      return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
     case "paga":
       return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200";
     default:
@@ -66,6 +98,7 @@ export function FaturaCartaoPage() {
   const [compraModal, setCompraModal] = useState(false);
   const [editing, setEditing] = useState<Transacao | null>(null);
   const [conta, setConta] = useState<Conta | null>(null);
+  const [aba, setAba] = useState<AbaFatura>("todos");
 
   const carregar = useCallback(async () => {
     if (!id || isNaN(id)) return;
@@ -79,7 +112,7 @@ export function FaturaCartaoPage() {
       }
       setConta(contaDb);
       const [lista, r, contas] = await Promise.all([
-        listFaturasCartao(id, 8),
+        listFaturasCartao(id),
         getResumoCartaoCredito(id),
         listContas(contexto),
       ]);
@@ -121,7 +154,7 @@ export function FaturaCartaoPage() {
     if (!id || isNaN(id)) return;
     try {
       const [lista, r] = await Promise.all([
-        listFaturasCartao(id, 8),
+        listFaturasCartao(id),
         getResumoCartaoCredito(id),
       ]);
       setFaturas(lista);
@@ -199,7 +232,19 @@ export function FaturaCartaoPage() {
     faturaAtual != null
       ? faturaAtual.total - (faturaAtual.valor_pago ?? 0)
       : 0;
-  const podePagar = faturaAtual && faturaAtual.status !== "paga" && pendente > 0;
+  const podePagar =
+    faturaAtual &&
+    faturaAtual.status !== "paga" &&
+    faturaAtual.status !== "futura" &&
+    pendente > 0;
+
+  const itens = faturaAtual?.itens ?? [];
+  const itensAVista = itens.filter((item) => !ehCompraParcelada(item));
+  const itensParceladas = itens.filter(ehCompraParcelada);
+  const itensVisiveis =
+    aba === "a_vista" ? itensAVista : aba === "parceladas" ? itensParceladas : itens;
+  const totalAba = itensVisiveis.reduce((s, item) => s + item.valor, 0);
+  const diaFechamento = conta?.dia_fechamento ?? 1;
 
   return (
     <div>
@@ -273,16 +318,21 @@ export function FaturaCartaoPage() {
       )}
 
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div className="w-48">
+        <div className="min-w-[16rem] flex-1 sm:max-w-md">
           <Select
             label="Fatura"
             value={mesSelecionado}
             onChange={(e) => setMesSelecionado(e.target.value)}
             options={faturas.map((f) => ({
               value: f.mes_referencia,
-              label: `${labelMes(f.mes_referencia)} · fecha ${formatDate(f.periodo_fim)}`,
+              label: `${labelMes(f.mes_competencia)} · ${labelStatus(f.status)} · fecha ${formatDate(f.periodo_fim)}`,
             }))}
           />
+          {faturas.some((f) => f.status === "futura") && (
+            <p className="mt-1 text-xs text-slate-500">
+              Faturas futuras são parcelas que ainda não fecharam o ciclo.
+            </p>
+          )}
         </div>
         {podePagar && faturaAtual?.id && (
           <Button onClick={() => setPagarModal(true)}>Pagar fatura</Button>
@@ -297,67 +347,140 @@ export function FaturaCartaoPage() {
             {labelStatus(faturaAtual.status)}
           </span>
           <span className="text-sm text-slate-500">
-            Período {formatDate(faturaAtual.periodo_inicio)} a {formatDate(faturaAtual.periodo_fim)}
+            Período {formatDate(faturaAtual.periodo_inicio)} a{" "}
+            {formatDate(ultimoDiaComprasFatura(faturaAtual.periodo_fim))} · fecha{" "}
+            {formatDate(faturaAtual.periodo_fim)}
           </span>
         </div>
       )}
 
-      {!faturaAtual || faturaAtual.itens.length === 0 ? (
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Button
+          variant={aba === "todos" ? "primary" : "secondary"}
+          className="py-1.5 text-xs"
+          onClick={() => setAba("todos")}
+        >
+          Todas ({itens.length})
+        </Button>
+        <Button
+          variant={aba === "a_vista" ? "primary" : "secondary"}
+          className="py-1.5 text-xs"
+          onClick={() => setAba("a_vista")}
+        >
+          À vista ({itensAVista.length})
+        </Button>
+        <Button
+          variant={aba === "parceladas" ? "primary" : "secondary"}
+          className="py-1.5 text-xs"
+          onClick={() => setAba("parceladas")}
+        >
+          Parceladas ({itensParceladas.length})
+        </Button>
+      </div>
+
+      {!faturaAtual || itens.length === 0 ? (
         <EmptyState message="Nenhuma compra nesta fatura." />
+      ) : itensVisiveis.length === 0 ? (
+        <EmptyState
+          message={
+            aba === "a_vista"
+              ? "Nenhuma compra à vista nesta fatura."
+              : "Nenhuma compra parcelada nesta fatura."
+          }
+        />
       ) : (
         <div className="overflow-x-auto app-card">
           <table className="w-full min-w-[560px] text-sm">
             <thead className="app-table-head">
               <tr>
-                <th className="px-4 py-3 font-medium">Data</th>
+                <th className="px-4 py-3 font-medium">Data da compra</th>
                 <th className="px-4 py-3 font-medium">Descrição</th>
+                {aba === "parceladas" && (
+                  <>
+                    <th className="px-4 py-3 font-medium">Parcela</th>
+                    <th className="px-4 py-3 font-medium">Conclusão</th>
+                  </>
+                )}
                 <th className="px-4 py-3 font-medium">Categoria</th>
                 <th className="px-4 py-3 font-medium text-right">Valor</th>
                 <th className="px-4 py-3 font-medium text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {faturaAtual.itens.map((item) => (
-                <tr key={item.id} className="app-table-row">
-                  <td className="px-4 py-3 whitespace-nowrap">{formatDate(item.data)}</td>
-                  <td className="px-4 py-3">
-                    {item.descricao}
-                    {item.parcela_total != null && item.parcela_total > 1 && (
-                      <span className="ml-2 text-xs text-slate-400">
-                        {item.parcela_numero}/{item.parcela_total}
-                      </span>
+              {itensVisiveis.map((item) => {
+                const parcelada = ehCompraParcelada(item);
+                const restantes =
+                  parcelada && item.parcela_numero != null && item.parcela_total != null
+                    ? item.parcela_total - item.parcela_numero
+                    : 0;
+                const conclusao =
+                  parcelada && item.parcela_total != null
+                    ? previsaoConclusaoParcela(item.data, item.parcela_total, diaFechamento)
+                    : null;
+                return (
+                  <tr key={item.id} className="app-table-row">
+                    <td className="px-4 py-3 whitespace-nowrap">{formatDate(item.data)}</td>
+                    <td className="px-4 py-3">
+                      {descricaoItemFatura(item)}
+                      {aba !== "parceladas" && parcelada && (
+                        <span className="ml-2 text-xs text-slate-400">
+                          {item.parcela_numero}/{item.parcela_total}
+                        </span>
+                      )}
+                    </td>
+                    {aba === "parceladas" && (
+                      <>
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                          {item.parcela_numero}/{item.parcela_total}
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="capitalize text-slate-700">
+                            {conclusao ? labelMes(conclusao) : "—"}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {restantes <= 0
+                              ? "Última parcela"
+                              : restantes === 1
+                                ? "1 parcela depois desta"
+                                : `${restantes} parcelas depois desta`}
+                          </p>
+                        </td>
+                      </>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">{item.categoria_nome ?? "—"}</td>
-                  <td className="px-4 py-3 text-right font-medium text-rose-700">
-                    {formatCurrency(item.valor)}
-                  </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <Button
-                      variant="ghost"
-                      className="px-2 py-1 text-xs"
-                      onClick={() => void handleEditar(item.id)}
-                    >
-                      Editar
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      className="px-2 py-1 text-xs text-rose-600"
-                      onClick={() => void handleExcluir(item)}
-                    >
-                      Excluir
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-4 py-3 text-slate-500">{item.categoria_nome ?? "—"}</td>
+                    <td className="px-4 py-3 text-right font-medium text-rose-700">
+                      {formatCurrency(item.valor)}
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        className="px-2 py-1 text-xs"
+                        onClick={() => void handleEditar(item.id)}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="px-2 py-1 text-xs text-rose-600"
+                        onClick={() => void handleExcluir(item)}
+                      >
+                        Excluir
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="border-t border-slate-200 font-semibold">
-                <td colSpan={3} className="px-4 py-3 text-right text-slate-600">
-                  Total
+                <td
+                  colSpan={aba === "parceladas" ? 5 : 3}
+                  className="px-4 py-3 text-right text-slate-600"
+                >
+                  {aba === "todos" ? "Total da fatura" : "Subtotal desta aba"}
                 </td>
                 <td className="px-4 py-3 text-right text-slate-900">
-                  {formatCurrency(faturaAtual.total)}
+                  {formatCurrency(totalAba)}
                 </td>
                 <td />
               </tr>

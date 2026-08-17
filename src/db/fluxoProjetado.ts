@@ -15,7 +15,7 @@ import {
 } from "./utils";
 import type { Conta, ContextoVisualizacao, FluxoProjetado12Meses, FluxoProjetadoResumo } from "../types";
 import { intervaloDoMes } from "../utils/dates";
-import { periodoFaturaCartao } from "../utils/faturaCartao";
+import { mesFechamentoAtual, periodoFaturaCartao } from "../utils/faturaCartao";
 import { arredondarMoeda, labelMes } from "../utils/format";
 
 interface EventoFluxo {
@@ -183,7 +183,11 @@ async function projetarCiclosFuturosCartao(
   const meses = mesesNoHorizonte(hoje, diasHorizonte);
 
   for (const cartao of cartoes) {
-    const historico = await listFaturasCartao(cartao.id, 6);
+    const mesAtual = mesFechamentoAtual(cartao.dia_fechamento);
+    const historico = await listFaturasCartao(cartao.id, 6, {
+      ordem: "desc",
+      ateMes: mesAtual,
+    });
     const comValor = historico.filter((f) => f.total > 0);
     if (comValor.length === 0) continue;
     const estimativa = arredondarMoeda(

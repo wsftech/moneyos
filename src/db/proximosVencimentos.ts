@@ -13,7 +13,7 @@ import type {
   Imposto,
   TipoContaPagarReceber,
 } from "../types";
-import { arredondarMoeda } from "../utils/format";
+import { arredondarMoeda, labelMes } from "../utils/format";
 import { addDays } from "../utils/dates";
 import { labelTipoTributo } from "../constants/tiposImposto";
 
@@ -123,7 +123,7 @@ function mapFatura(
   return {
     chave: `fat-${fatura.id ?? fatura.conta_id}-${fatura.mes_referencia}`,
     origem: "fatura_cartao",
-    descricao: `${fatura.conta_nome} — fatura ${fatura.mes_referencia}`,
+    descricao: `${fatura.conta_nome} — fatura ${labelMes(fatura.mes_competencia)}`,
     valor: restante,
     vencimento: fatura.vencimento,
     contexto,

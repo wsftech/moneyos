@@ -30,7 +30,7 @@ export function faturaParaExibicao(
   const id = fatura.id != null ? -fatura.id : -(fatura.conta_id * 100000 + Number(fatura.mes_referencia.replace("-", "")));
   const transacao: Transacao = {
     id,
-    descricao: `Fatura ${fatura.conta_nome} · ${labelMes(fatura.mes_referencia)}`,
+    descricao: `Fatura ${fatura.conta_nome} · ${labelMes(fatura.mes_competencia)}`,
     valor: fatura.total,
     data: fatura.vencimento,
     tipo: "despesa",

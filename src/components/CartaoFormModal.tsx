@@ -239,6 +239,9 @@ export function CartaoFormModal({
             required
           />
         </div>
+        <p className="-mt-2 text-xs text-slate-500">
+          Compra no dia do fechamento entra automaticamente na próxima fatura.
+        </p>
         <ValorInput
           label="Limite do cartão"
           min="0"

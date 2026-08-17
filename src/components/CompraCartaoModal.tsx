@@ -24,8 +24,8 @@ import { createCompraParceladaCartao, createTransacao, updateTransacao } from ".
 import { getErrorMessage } from "../db/utils";
 import type { Conta, Transacao } from "../types";
 import { formatCurrency, labelMes } from "../utils/format";
-import { addMonths, todayIsoDate } from "../utils/dates";
-import { mesFechamentoParaData } from "../utils/faturaCartao";
+import { todayIsoDate } from "../utils/dates";
+import { dataCicloParcelaCartao, mesCompetenciaParaData } from "../utils/faturaCartao";
 import { validarParcelasJaPagas } from "../utils/parcelasHistoricas";
 
 export function CompraCartaoModal({
@@ -234,11 +234,13 @@ export function CompraCartaoModal({
 
   const valorParcela =
     nParcelas >= 2 && !isNaN(valorNum) && valorNum > 0 ? valorNum / nParcelas : null;
-  const primeiraRestante =
-    data && nParcelas >= 2 ? addMonths(data, jaPagas) : null;
+  const primeiraRestanteNumero = jaPagas + 1;
   const mesFaturaPrevisto =
-    primeiraRestante && cartaoSel?.dia_fechamento
-      ? mesFechamentoParaData(primeiraRestante, cartaoSel.dia_fechamento)
+    data && cartaoSel?.dia_fechamento
+      ? mesCompetenciaParaData(
+          dataCicloParcelaCartao(data, nParcelas >= 2 ? primeiraRestanteNumero : 1),
+          cartaoSel.dia_fechamento,
+        )
       : null;
 
   return (
@@ -280,6 +282,10 @@ export function CompraCartaoModal({
             required
           />
         </div>
+        <p className="-mt-2 text-xs text-slate-500">
+          Data em que a compra foi feita. Compra no dia do fechamento entra na próxima fatura. Nas
+          parcelas essa data se repete; só muda a fatura em que cada uma entra.
+        </p>
         <Select
           label="Categoria (orçamento)"
           value={categoriaId}
@@ -318,8 +324,8 @@ export function CompraCartaoModal({
         )}
         {isEdit && transacao?.parcela_total != null && transacao.parcela_total > 1 && (
           <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            Parcela {transacao.parcela_numero}/{transacao.parcela_total}. Valor e data valem só
-            para esta parcela; a categoria se aplica a todas.
+            Parcela {transacao.parcela_numero}/{transacao.parcela_total}. Valor vale só para esta
+            parcela; a data da compra e a categoria se aplicam a todas.
           </p>
         )}
         {!isEdit && nParcelas >= 2 && valorParcela != null && (
@@ -327,9 +333,8 @@ export function CompraCartaoModal({
             {jaPagas > 0
               ? `${restantes} em aberto de cerca de ${formatCurrency(valorParcela)} (parcela ${jaPagas + 1}/${nParcelas} em diante)`
               : `${nParcelas}× de cerca de ${formatCurrency(valorParcela)}`}
-            {primeiraRestante ? ` · próxima parcela em ${primeiraRestante}` : ""}
-            {mesFaturaPrevisto ? ` · fatura de ${labelMes(mesFaturaPrevisto)}` : ""}. Use a data
-            original da compra (1ª parcela).
+            {mesFaturaPrevisto ? ` · primeira restante na fatura de ${labelMes(mesFaturaPrevisto)}` : ""}. Use a data
+            original da compra.
           </p>
         )}
         {preview && preview.valor_limite != null && (

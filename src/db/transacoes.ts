@@ -21,6 +21,8 @@ import type {
   TransferenciaPapel,
   Transacao,
 } from "../types";
+import { addMonths } from "../utils/dates";
+import { dataCicloParcelaCartao, mesFechamentoParaData } from "../utils/faturaCartao";
 
 /** No consolidado, pernas de transferência entre contextos não entram no P&L. */
 function sqlExcluirTransferenciaCrossContext(
@@ -266,9 +268,9 @@ export async function createTransacao(input: TransacaoInput): Promise<Transacao>
 
 /**
  * Cria N despesas no cartão, uma por fatura/mês, agrupadas por compra_parcelada_id.
- * Cada parcela é vinculada automaticamente à fatura do ciclo correspondente.
+ * Todas as parcelas guardam a data da compra; o ciclo da fatura segue o número da parcela.
  * `parcelas_ja_pagas`: primeiras parcelas já cobradas — não são criadas de novo;
- * as restantes mantêm numeração (ex.: 5/10) e datas a partir do mês correspondente.
+ * as restantes mantêm a numeração (ex.: 5/10).
  */
 export async function createCompraParceladaCartao(
   input: Omit<TransacaoInput, "tipo" | "parcela_numero" | "parcela_total" | "compra_parcelada_id"> & {
@@ -297,7 +299,6 @@ export async function createCompraParceladaCartao(
   }
 
   const { dividirValorTotal } = await import("../utils/financiamentoCalc");
-  const { addMonths } = await import("../utils/dates");
   const valores = dividirValorTotal(input.valor, n);
   const groupId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -313,17 +314,12 @@ export async function createCompraParceladaCartao(
   const dataCompra = baseInput.data;
   const criadas: Transacao[] = [];
   for (let indice = jaPagas; indice < n; indice++) {
-    // Parcela 1 = data da compra; parcela N = + (N-1) meses — inclusive com já pagas.
     const numero = indice + 1;
-    const dataParcela = addMonths(dataCompra, indice);
-    if (indice > 0 && dataParcela === dataCompra) {
-      throw new DatabaseError("Falha ao calcular a data da parcela.");
-    }
     const created = await createTransacao({
       ...baseInput,
       tipo: "despesa",
       valor: valores[indice],
-      data: dataParcela,
+      data: dataCompra,
       descricao: `${baseInput.descricao} (${numero}/${n})`,
       categoria_id: baseInput.categoria_id ?? null,
       compra_parcelada_id: groupId,
@@ -333,6 +329,98 @@ export async function createCompraParceladaCartao(
     criadas.push(created);
   }
   return criadas;
+}
+
+interface ParcelaDataRow {
+  id: number;
+  data: string;
+  parcela_numero: number | null;
+  fatura_cartao_id: number | null;
+  fatura_mes: string | null;
+}
+
+function inferirDataCompraGrupo(items: ParcelaDataRow[], diaFechamento: number): string | null {
+  if (items.length === 0) return null;
+
+  const implied = items.map((i) => addMonths(i.data, 1 - (i.parcela_numero ?? 1)));
+  const uniqueImplied = new Set(implied);
+  const uniqueData = new Set(items.map((i) => i.data));
+
+  if (items.length > 1 && uniqueImplied.size === 1) return implied[0];
+  if (items.length > 1 && uniqueData.size === 1) return items[0].data;
+
+  const minP = items.reduce((a, b) =>
+    (a.parcela_numero ?? 1) <= (b.parcela_numero ?? 1) ? a : b,
+  );
+  const n = minP.parcela_numero ?? 1;
+  const mesSeCompra = mesFechamentoParaData(dataCicloParcelaCartao(minP.data, n), diaFechamento);
+  const mesSeCiclo = mesFechamentoParaData(minP.data, diaFechamento);
+  if (minP.fatura_mes) {
+    if (minP.fatura_mes === mesSeCompra && minP.fatura_mes !== mesSeCiclo) {
+      return minP.data;
+    }
+    if (minP.fatura_mes === mesSeCiclo && minP.fatura_mes !== mesSeCompra) {
+      return addMonths(minP.data, 1 - n);
+    }
+  }
+  if (uniqueImplied.size === 1) return implied[0];
+  if (uniqueData.size === 1) return items[0].data;
+  return addMonths(minP.data, 1 - n);
+}
+
+/** Grava a data da compra em todas as parcelas e religa cada uma à fatura do ciclo. */
+export async function alinharDatasCompraParceladaConta(contaId: number): Promise<void> {
+  const conta = await getConta(contaId);
+  if (!conta?.dia_fechamento || conta.tipo !== "cartao_credito") return;
+  const diaFechamento = conta.dia_fechamento;
+
+  await withDatabase(async () => {
+    const db = await getDatabase();
+    const grupos = await db.select<{ compra_parcelada_id: string }[]>(
+      `SELECT DISTINCT compra_parcelada_id AS compra_parcelada_id
+       FROM transacoes
+       WHERE conta_id = $1 AND compra_parcelada_id IS NOT NULL`,
+      [contaId],
+    );
+
+    const { vincularCompraAFatura, recalcularFaturaPorId } = await import("./faturasCartao");
+    const ts = nowIso();
+
+    for (const g of grupos) {
+      const items = await db.select<ParcelaDataRow[]>(
+        `SELECT t.id, t.data, t.parcela_numero, t.fatura_cartao_id,
+                f.mes_referencia AS fatura_mes
+         FROM transacoes t
+         LEFT JOIN faturas_cartao f ON f.id = t.fatura_cartao_id
+         WHERE t.compra_parcelada_id = $1
+         ORDER BY t.parcela_numero ASC, t.id ASC`,
+        [g.compra_parcelada_id],
+      );
+      const dataCompra = inferirDataCompraGrupo(items, diaFechamento);
+      if (!dataCompra) continue;
+
+      const faturasAntigas = new Set(
+        items.map((i) => i.fatura_cartao_id).filter((id): id is number => id != null),
+      );
+      const precisaAtualizar = items.some((i) => i.data !== dataCompra);
+      if (precisaAtualizar) {
+        await db.execute(
+          `UPDATE transacoes SET data = $1, updated_at = $2 WHERE compra_parcelada_id = $3`,
+          [dataCompra, ts, g.compra_parcelada_id],
+        );
+      }
+      if (precisaAtualizar || items.some((i) => i.fatura_cartao_id == null)) {
+        for (const item of items) {
+          await vincularCompraAFatura(item.id, contaId, dataCompra);
+        }
+      }
+      if (precisaAtualizar) {
+        for (const faturaId of faturasAntigas) {
+          await recalcularFaturaPorId(faturaId);
+        }
+      }
+    }
+  });
 }
 
 export async function createTransferencia(
@@ -524,6 +612,17 @@ export async function updateTransacao(
       );
     }
 
+    if (
+      existing.compra_parcelada_id &&
+      input.data &&
+      input.data !== existing.data
+    ) {
+      await db.execute(
+        `UPDATE transacoes SET data = $1, updated_at = $2 WHERE compra_parcelada_id = $3`,
+        [input.data, timestamp, existing.compra_parcelada_id],
+      );
+    }
+
     if (par) {
       await applyUpdate(par.id, {
         descricao: input.descricao ?? existing.descricao,
@@ -545,12 +644,30 @@ export async function updateTransacao(
     const conta = await getConta(transacao.conta_id);
     if (transacao.tipo === "despesa" && conta?.tipo === "cartao_credito") {
       const { vincularCompraAFatura, recalcularFaturaPorId } = await import("./faturasCartao");
-      await vincularCompraAFatura(transacao.id, transacao.conta_id, transacao.data);
-      if (
-        existing.fatura_cartao_id &&
-        existing.fatura_cartao_id !== transacao.fatura_cartao_id
-      ) {
-        await recalcularFaturaPorId(existing.fatura_cartao_id);
+      const dataMudou =
+        !!existing.compra_parcelada_id && !!input.data && input.data !== existing.data;
+      if (dataMudou && transacao.compra_parcelada_id) {
+        const siblings = await db.select<{ id: number; fatura_cartao_id: number | null }[]>(
+          `SELECT id, fatura_cartao_id FROM transacoes WHERE compra_parcelada_id = $1`,
+          [transacao.compra_parcelada_id],
+        );
+        const faturasAntigas = new Set<number>();
+        if (existing.fatura_cartao_id) faturasAntigas.add(existing.fatura_cartao_id);
+        for (const s of siblings) {
+          if (s.fatura_cartao_id) faturasAntigas.add(s.fatura_cartao_id);
+          await vincularCompraAFatura(s.id, transacao.conta_id, transacao.data);
+        }
+        for (const faturaId of faturasAntigas) {
+          await recalcularFaturaPorId(faturaId);
+        }
+      } else {
+        await vincularCompraAFatura(transacao.id, transacao.conta_id, transacao.data);
+        if (
+          existing.fatura_cartao_id &&
+          existing.fatura_cartao_id !== transacao.fatura_cartao_id
+        ) {
+          await recalcularFaturaPorId(existing.fatura_cartao_id);
+        }
       }
     }
 

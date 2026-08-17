@@ -6,7 +6,7 @@ import { getPatrimonioResumo } from "./patrimonio";
 import { getDatabase } from "./connection";
 import { applyContextoFilter, buildContextoFilter, withDatabase } from "./utils";
 import type { ContextoVisualizacao, ItemEndividamento, RelatorioEndividamento } from "../types";
-import { arredondarMoeda, mesAtual } from "../utils/format";
+import { arredondarMoeda, labelMes, mesAtual } from "../utils/format";
 
 async function parcelasVencendoNoMes(
   contexto: ContextoVisualizacao | undefined,
@@ -109,7 +109,7 @@ export async function getRelatorioEndividamento(
     ...faturas.map((f) => ({
       id: f.id ?? f.conta_id,
       tipo: "fatura_cartao" as const,
-      descricao: `${f.conta_nome} — ${f.mes_referencia}`,
+      descricao: `${f.conta_nome} — ${labelMes(f.mes_competencia)}`,
       contexto: contextoPorConta.get(f.conta_id) ?? "pessoal",
       valor_total: f.total,
       valor_pago: f.valor_pago ?? 0,
