@@ -83,10 +83,26 @@ if (-not $Notes) {
   }
 }
 
-$repo = (gh repo view --json nameWithOwner --jq ".nameWithOwner" 2>$null)
-if (-not $repo) {
+function Get-GithubRepoName {
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $fromGh = gh repo view --json nameWithOwner --jq ".nameWithOwner" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $fromGh) { return [string]$fromGh.Trim() }
+  } catch {
+    # GraphQL da CLI às vezes cai (503); cai no remote do git.
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+
+  $origin = (git remote get-url origin).Trim()
+  if ($origin -match 'github\.com[:/](.+?)(?:\.git)?$') {
+    return $Matches[1]
+  }
   throw "Nao foi possivel detectar o repositorio GitHub. Rode gh auth login."
 }
+
+$repo = Get-GithubRepoName
 
 Write-Host ""
 Write-Host "Publicar WSF Money $current -> $Version" -ForegroundColor Cyan
@@ -149,13 +165,22 @@ Write-Host "5/5 Criando GitHub Release..."
 $notesFile = Join-Path $env:TEMP "wsf-money-release-notes.txt"
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($notesFile, $Notes, $utf8NoBom)
-gh release create $tag `
-  --title "WSF Money $Version" `
-  --notes-file $notesFile `
-  --latest `
-  "$($setup.FullName)#$remoteName" `
-  "$($sig.FullName)#$remoteName.sig" `
-  "latest.json#latest.json"
+$releaseExit = 0
+try {
+  gh release create $tag `
+    --title "WSF Money $Version" `
+    --notes-file $notesFile `
+    --latest `
+    "$($setup.FullName)#$remoteName" `
+    "$($sig.FullName)#$remoteName.sig" `
+    "latest.json#latest.json"
+  $releaseExit = $LASTEXITCODE
+} catch {
+  throw "Falha ao criar a GitHub Release (tag $tag ja foi enviada). Rode: gh release create $tag --title `"WSF Money $Version`" --latest <arquivos>"
+}
+if ($releaseExit -ne 0) {
+  throw "gh release create falhou (codigo $releaseExit). A tag $tag existe, mas o instalador ainda nao foi publicado."
+}
 
 Write-Host ""
 Write-Host "Release publicada: https://github.com/$repo/releases/tag/$tag" -ForegroundColor Green
