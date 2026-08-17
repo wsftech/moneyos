@@ -4,11 +4,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { AtualizacaoModal } from "./AtualizacaoModal";
 import { AtualizacaoToast } from "./AtualizacaoToast";
+import { useContexto } from "../contexts/ContextoContext";
 import {
   baixarEInstalarAtualizacao,
   dismissAtualizacao,
@@ -22,7 +24,7 @@ type FaseUi = "fechado" | "disponivel" | "progresso" | "erro";
 type AtualizacaoContextValue = {
   /** Abre o fluxo de instalação (com modal de progresso). */
   instalarAtualizacao: (versao: string, notas?: string) => Promise<void>;
-  /** Verifica em segundo plano e oferece modal se houver update (respeita dismiss da sessão). */
+  /** Verifica em segundo plano e mostra o aviso se houver update. */
   verificarEmBackground: () => Promise<void>;
 };
 
@@ -43,6 +45,10 @@ export function AtualizacaoProvider({ children }: { children: ReactNode }) {
   const [progresso, setProgresso] = useState<ProgressoAtualizacao>({ fase: "idle" });
   const [erro, setErro] = useState<string | undefined>();
   const [instalando, setInstalando] = useState(false);
+  const instalandoRef = useRef(false);
+  const faseRef = useRef(fase);
+  instalandoRef.current = instalando;
+  faseRef.current = fase;
 
   const fechar = useCallback(() => {
     if (instalando) return;
@@ -81,14 +87,14 @@ export function AtualizacaoProvider({ children }: { children: ReactNode }) {
   );
 
   const verificarEmBackground = useCallback(async () => {
-    if (instalando || fase === "progresso") return;
+    if (instalandoRef.current || faseRef.current === "progresso") return;
     const status = await verificarAtualizacao();
     if (status.tipo !== "disponivel") return;
     if (foiDismissAtualizacao(status.versao)) return;
     setVersao(status.versao);
     setNotas(status.notas);
     setFase("disponivel");
-  }, [instalando, fase]);
+  }, []);
 
   const value = useMemo(
     () => ({ instalarAtualizacao, verificarEmBackground }),
@@ -124,14 +130,19 @@ export function AtualizacaoProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Dispara a verificação silenciosa uma vez após montar o provider. */
+/** Verifica assim que o app sai da splash — o aviso deve aparecer ao abrir. */
 export function AtualizacaoBackgroundCheck() {
   const { verificarEmBackground } = useAtualizacao();
+  const { loading } = useContexto();
+  const executou = useRef(false);
+
   useEffect(() => {
+    if (loading || executou.current) return;
+    executou.current = true;
     const t = window.setTimeout(() => {
       void verificarEmBackground();
-    }, 800);
+    }, 400);
     return () => window.clearTimeout(t);
-  }, [verificarEmBackground]);
+  }, [loading, verificarEmBackground]);
   return null;
 }
