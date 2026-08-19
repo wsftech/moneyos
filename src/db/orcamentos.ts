@@ -556,9 +556,12 @@ async function getLimiteCategoriaMes(
 }
 
 /**
- * Realizado no mês: lançamentos pela data da compra/despesa.
- * Compras no cartão também entram no mês da compra (não só no mês da fatura),
- * para o limite da categoria ser consumido na hora do gasto.
+ * Realizado no mês para despesas:
+ * - Contas NÃO-cartão: filtradas pela data do lançamento.
+ * - Cartão com categoria: filtradas pelo mes_competencia da fatura
+ *   (dia de periodo_fim <= 15 → mês de periodo_inicio; senão → mês de periodo_fim).
+ *   Para parceladas: conta apenas parcela_numero = 1.
+ * - Cartão SEM categoria: delegado a getGastoCartaoSemCategoriaNoEnvelope.
  */
 async function getRealizadoOrcamento(
   categoriaId: number,
@@ -582,33 +585,46 @@ async function getRealizadoOrcamento(
       return Number(rows[0]?.total ?? 0);
     }
 
-    // Transações normais (não-cartão ou compra à vista no cartão: parcela_total IS NULL ou = 1).
-    // Para parceladas no cartão, conta apenas parcela_numero = 1 para não duplicar o gasto
-    // nos meses seguintes (cada parcela tem a data da compra, não do vencimento da fatura).
-    const rows = await db.select<{ total: number }[]>(
+    // 1) Despesas em contas NÃO-cartão: filtradas pela data do lançamento.
+    const rowsNaoCartao = await db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(t.valor), 0) as total
        FROM transacoes t
-       LEFT JOIN contas co ON CAST(co.id AS INTEGER) = CAST(t.conta_id AS INTEGER)
+       JOIN contas co ON CAST(co.id AS INTEGER) = CAST(t.conta_id AS INTEGER)
        WHERE t.status = 'efetivado'
          AND t.tipo = 'despesa'
          AND CAST(t.categoria_id AS INTEGER) = CAST($1 AS INTEGER)
          AND t.contexto = $2
          AND t.data LIKE $3
-         AND (
-           co.tipo IS NULL
-           OR co.tipo != 'cartao_credito'
-           OR t.parcela_total IS NULL
-           OR t.parcela_total <= 1
-           OR t.parcela_numero = 1
-         )`,
+         AND co.tipo != 'cartao_credito'`,
       [categoriaId, contexto, `${mesReferencia}%`],
     );
-    let total = Number(rows[0]?.total ?? 0);
-    total += await getGastoCartaoSemCategoriaNoEnvelope(
-      categoriaId,
-      contexto,
-      mesReferencia,
+    let total = Number(rowsNaoCartao[0]?.total ?? 0);
+
+    // 2) Despesas em cartão com categoria: filtradas pelo mes_competencia da fatura.
+    //    Para parceladas: conta apenas parcela_numero = 1.
+    const rowsCartao = await db.select<{ total: number }[]>(
+      `SELECT COALESCE(SUM(t.valor), 0) as total
+       FROM transacoes t
+       JOIN contas co ON CAST(co.id AS INTEGER) = CAST(t.conta_id AS INTEGER)
+       JOIN faturas_cartao fc ON fc.id = t.fatura_cartao_id
+       WHERE t.status = 'efetivado'
+         AND t.tipo = 'despesa'
+         AND CAST(t.categoria_id AS INTEGER) = CAST($1 AS INTEGER)
+         AND t.contexto = $2
+         AND co.tipo = 'cartao_credito'
+         AND (
+           CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
+                THEN substr(fc.periodo_inicio, 1, 7)
+                ELSE substr(fc.periodo_fim, 1, 7)
+           END
+         ) = $3
+         AND (t.parcela_total IS NULL OR t.parcela_total <= 1 OR t.parcela_numero = 1)`,
+      [categoriaId, contexto, mesReferencia],
     );
+    total += Number(rowsCartao[0]?.total ?? 0);
+
+    // 3) Cartão SEM categoria: envelope "Cartões de crédito" pelo mes_competencia.
+    total += await getGastoCartaoSemCategoriaNoEnvelope(categoriaId, contexto, mesReferencia);
     return total;
   });
 }
@@ -624,19 +640,24 @@ async function getGastoCartaoSemCategoriaNoEnvelope(
   if (!cat || !isNomeCategoriaCartoesCredito(cat.nome)) return 0;
 
   const db = await getDatabase();
-  // Para parceladas: conta apenas parcela 1 (a data da compra está em todas as parcelas).
   const rows = await db.select<{ total: number }[]>(
     `SELECT COALESCE(SUM(t.valor), 0) as total
      FROM transacoes t
      JOIN contas co ON CAST(co.id AS INTEGER) = CAST(t.conta_id AS INTEGER)
+     JOIN faturas_cartao fc ON fc.id = t.fatura_cartao_id
      WHERE t.status = 'efetivado'
        AND t.tipo = 'despesa'
        AND t.categoria_id IS NULL
        AND t.contexto = $1
-       AND t.data LIKE $2
        AND co.tipo = 'cartao_credito'
+       AND (
+         CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
+              THEN substr(fc.periodo_inicio, 1, 7)
+              ELSE substr(fc.periodo_fim, 1, 7)
+         END
+       ) = $2
        AND (t.parcela_total IS NULL OR t.parcela_total <= 1 OR t.parcela_numero = 1)`,
-    [contexto, `${mesReferencia}%`],
+    [contexto, mesReferencia],
   );
   return Number(rows[0]?.total ?? 0);
 }
