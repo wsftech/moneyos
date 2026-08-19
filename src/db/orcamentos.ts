@@ -555,13 +555,19 @@ async function getLimiteCategoriaMes(
   });
 }
 
+/** SQL: mes_competencia da fatura (fecha até dia 15 → mês do início do ciclo). */
+const SQL_MES_COMPETENCIA_FATURA = `CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
+         THEN substr(fc.periodo_inicio, 1, 7)
+         ELSE substr(fc.periodo_fim, 1, 7)
+    END`;
+
 /**
  * Realizado no mês para despesas:
- * - Contas NÃO-cartão: filtradas pela data do lançamento.
- * - Cartão com categoria: filtradas pelo mes_competencia da fatura
- *   (dia de periodo_fim <= 15 → mês de periodo_inicio; senão → mês de periodo_fim).
- *   Para parceladas: conta apenas parcela_numero = 1.
- * - Cartão SEM categoria: delegado a getGastoCartaoSemCategoriaNoEnvelope.
+ * - Contas NÃO-cartão: pela data do lançamento.
+ * - Envelope "Cartões de crédito": soma os totais das faturas com mes_competencia
+ *   neste mês (à vista + todas as parcelas daquele ciclo).
+ * - Demais categorias no cartão: transações da fatura com aquele mes_competencia
+ *   (incluindo parcelas 2+ que caem neste ciclo).
  */
 async function getRealizadoOrcamento(
   categoriaId: number,
@@ -585,7 +591,6 @@ async function getRealizadoOrcamento(
       return Number(rows[0]?.total ?? 0);
     }
 
-    // 1) Despesas em contas NÃO-cartão: filtradas pela data do lançamento.
     const rowsNaoCartao = await db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(t.valor), 0) as total
        FROM transacoes t
@@ -600,10 +605,13 @@ async function getRealizadoOrcamento(
     );
     let total = Number(rowsNaoCartao[0]?.total ?? 0);
 
-    // 2) Despesas em cartão com categoria: filtradas pelo mes_competencia da fatura.
-    //    Usa LEFT JOIN para cobrir transações ainda sem fatura_cartao_id (não sincronizadas):
-    //    se a fatura existe, filtra por mes_competencia; senão, cai na data da compra.
-    //    Para parceladas: conta apenas parcela_numero = 1.
+    const { getCategoria, isNomeCategoriaCartoesCredito } = await import("./categorias");
+    const cat = await getCategoria(categoriaId);
+    if (cat && isNomeCategoriaCartoesCredito(cat.nome)) {
+      total += await getTotalFaturasMesCompetencia(contexto, mesReferencia);
+      return total;
+    }
+
     const rowsCartao = await db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(t.valor), 0) as total
        FROM transacoes t
@@ -616,57 +624,30 @@ async function getRealizadoOrcamento(
          AND co.tipo = 'cartao_credito'
          AND (
            CASE
-             WHEN fc.id IS NOT NULL THEN
-               CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
-                    THEN substr(fc.periodo_inicio, 1, 7)
-                    ELSE substr(fc.periodo_fim, 1, 7)
-               END
+             WHEN fc.id IS NOT NULL THEN ${SQL_MES_COMPETENCIA_FATURA}
              ELSE substr(t.data, 1, 7)
            END
-         ) = $3
-         AND (t.parcela_total IS NULL OR t.parcela_total <= 1 OR t.parcela_numero = 1)`,
+         ) = $3`,
       [categoriaId, contexto, mesReferencia],
     );
     total += Number(rowsCartao[0]?.total ?? 0);
-
-    // 3) Cartão SEM categoria: envelope "Cartões de crédito" pelo mes_competencia.
-    total += await getGastoCartaoSemCategoriaNoEnvelope(categoriaId, contexto, mesReferencia);
     return total;
   });
 }
 
-/** Gastos no cartão sem categoria entram no envelope “Cartões de crédito”. */
-async function getGastoCartaoSemCategoriaNoEnvelope(
-  categoriaId: number,
+/** Soma das faturas cujo mes_competencia = mesReferencia (ciclo aberto incluso). */
+async function getTotalFaturasMesCompetencia(
   contexto: Contexto,
   mesReferencia: string,
 ): Promise<number> {
-  const { getCategoria, isNomeCategoriaCartoesCredito } = await import("./categorias");
-  const cat = await getCategoria(categoriaId);
-  if (!cat || !isNomeCategoriaCartoesCredito(cat.nome)) return 0;
-
   const db = await getDatabase();
   const rows = await db.select<{ total: number }[]>(
-    `SELECT COALESCE(SUM(t.valor), 0) as total
-     FROM transacoes t
-     JOIN contas co ON CAST(co.id AS INTEGER) = CAST(t.conta_id AS INTEGER)
-     LEFT JOIN faturas_cartao fc ON fc.id = t.fatura_cartao_id
-     WHERE t.status = 'efetivado'
-       AND t.tipo = 'despesa'
-       AND t.categoria_id IS NULL
-       AND t.contexto = $1
-       AND co.tipo = 'cartao_credito'
-       AND (
-         CASE
-           WHEN fc.id IS NOT NULL THEN
-             CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
-                  THEN substr(fc.periodo_inicio, 1, 7)
-                  ELSE substr(fc.periodo_fim, 1, 7)
-             END
-           ELSE substr(t.data, 1, 7)
-         END
-       ) = $2
-       AND (t.parcela_total IS NULL OR t.parcela_total <= 1 OR t.parcela_numero = 1)`,
+    `SELECT COALESCE(SUM(fc.total), 0) as total
+     FROM faturas_cartao fc
+     JOIN contas co ON CAST(co.id AS INTEGER) = CAST(fc.conta_id AS INTEGER)
+     WHERE co.tipo = 'cartao_credito'
+       AND co.contexto = $1
+       AND (${SQL_MES_COMPETENCIA_FATURA}) = $2`,
     [contexto, mesReferencia],
   );
   return Number(rows[0]?.total ?? 0);
