@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CompraCartaoModal } from "../components/CompraCartaoModal";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -99,9 +99,14 @@ export function FaturaCartaoPage() {
   const [editing, setEditing] = useState<Transacao | null>(null);
   const [conta, setConta] = useState<Conta | null>(null);
   const [aba, setAba] = useState<AbaFatura>("todos");
+  // Usado para evitar a busca dupla de fatura na montagem inicial:
+  // carregar() já seta faturaAtual; o useEffect de mesSelecionado não deve
+  // repetir a busca nessa mesma renderização.
+  const carregarEmAndamento = useRef(false);
 
   const carregar = useCallback(async () => {
     if (!id || isNaN(id)) return;
+    carregarEmAndamento.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -138,6 +143,7 @@ export function FaturaCartaoPage() {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
+      carregarEmAndamento.current = false;
     }
   }, [id, contexto]);
 
@@ -147,6 +153,8 @@ export function FaturaCartaoPage() {
 
   useEffect(() => {
     if (!id || isNaN(id) || !mesSelecionado) return;
+    // Evita busca duplicada quando carregar() já buscou e setou mesSelecionado
+    if (carregarEmAndamento.current) return;
     void getFaturaCartao(id, mesSelecionado).then(setFaturaAtual);
   }, [id, mesSelecionado]);
 

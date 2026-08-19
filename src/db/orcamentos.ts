@@ -582,14 +582,25 @@ async function getRealizadoOrcamento(
       return Number(rows[0]?.total ?? 0);
     }
 
+    // Transações normais (não-cartão ou compra à vista no cartão: parcela_total IS NULL ou = 1).
+    // Para parceladas no cartão, conta apenas parcela_numero = 1 para não duplicar o gasto
+    // nos meses seguintes (cada parcela tem a data da compra, não do vencimento da fatura).
     const rows = await db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(t.valor), 0) as total
        FROM transacoes t
+       LEFT JOIN contas co ON CAST(co.id AS INTEGER) = CAST(t.conta_id AS INTEGER)
        WHERE t.status = 'efetivado'
          AND t.tipo = 'despesa'
          AND CAST(t.categoria_id AS INTEGER) = CAST($1 AS INTEGER)
          AND t.contexto = $2
-         AND t.data LIKE $3`,
+         AND t.data LIKE $3
+         AND (
+           co.tipo IS NULL
+           OR co.tipo != 'cartao_credito'
+           OR t.parcela_total IS NULL
+           OR t.parcela_total <= 1
+           OR t.parcela_numero = 1
+         )`,
       [categoriaId, contexto, `${mesReferencia}%`],
     );
     let total = Number(rows[0]?.total ?? 0);
@@ -613,6 +624,7 @@ async function getGastoCartaoSemCategoriaNoEnvelope(
   if (!cat || !isNomeCategoriaCartoesCredito(cat.nome)) return 0;
 
   const db = await getDatabase();
+  // Para parceladas: conta apenas parcela 1 (a data da compra está em todas as parcelas).
   const rows = await db.select<{ total: number }[]>(
     `SELECT COALESCE(SUM(t.valor), 0) as total
      FROM transacoes t
@@ -622,7 +634,8 @@ async function getGastoCartaoSemCategoriaNoEnvelope(
        AND t.categoria_id IS NULL
        AND t.contexto = $1
        AND t.data LIKE $2
-       AND co.tipo = 'cartao_credito'`,
+       AND co.tipo = 'cartao_credito'
+       AND (t.parcela_total IS NULL OR t.parcela_total <= 1 OR t.parcela_numero = 1)`,
     [contexto, `${mesReferencia}%`],
   );
   return Number(rows[0]?.total ?? 0);

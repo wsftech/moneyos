@@ -126,8 +126,8 @@ export function CartaoFormModal({
       return;
     }
     const limite = parseFloat(limiteCredito);
-    if (!limiteCredito || isNaN(limite) || limite <= 0) {
-      setFormError("Informe o limite do cartão.");
+    if (limiteCredito.trim() === "" || isNaN(limite) || limite < 0) {
+      setFormError("Informe o limite do cartão (use 0 se não há limite definido).");
       return;
     }
     const finais = normalizarFinal(finalCartao);

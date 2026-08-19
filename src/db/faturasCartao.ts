@@ -19,7 +19,7 @@ import {
   statusFaturaPorPeriodo,
 } from "../utils/faturaCartao";
 import { todayIsoDate } from "../utils/dates";
-import { arredondarMoeda, labelMes } from "../utils/format";
+import { addMonthsYm, arredondarMoeda, labelMes } from "../utils/format";
 
 interface FaturaRow {
   id: number;
@@ -561,18 +561,55 @@ export async function pagarFaturaCartao(input: PagarFaturaInput): Promise<Fatura
   });
 }
 
+/** Reverte o pagamento de uma fatura: zera valor_pago, transacao_pagamento_id e recalcula status. */
+export async function reverterPagamentoFatura(faturaId: number): Promise<void> {
+  return withDatabase(async () => {
+    const db = await getDatabase();
+    const rows = await db.select<FaturaRow[]>("SELECT * FROM faturas_cartao WHERE id = $1", [faturaId]);
+    const fatura = rows[0];
+    if (!fatura) return;
+
+    const total = await recalcularTotalFatura(db, faturaId);
+    const hoje = todayIsoDate();
+    const novoStatus = statusFaturaPersistido({ ...fatura, total, valor_pago: 0, status: "aberta" }, hoje);
+
+    await db.execute(
+      `UPDATE faturas_cartao
+       SET valor_pago = NULL, data_pagamento = NULL, status = $1,
+           transacao_pagamento_id = NULL, updated_at = $2
+       WHERE id = $3`,
+      [novoStatus, nowIso(), faturaId],
+    );
+  });
+}
+
 export async function getResumoCartaoCredito(contaId: number): Promise<ResumoCartaoCredito | null> {
   const conta = await getConta(contaId);
   if (!conta || conta.tipo !== "cartao_credito") return null;
 
   await sincronizarFaturasCartaoConta(contaId);
 
-  const [saldo, faturaAtual] = await Promise.all([
+  const [saldo, faturaAtualBruta] = await Promise.all([
     getSaldoConta(contaId),
     conta.dia_fechamento && conta.dia_vencimento
       ? getFaturaCartao(contaId)
       : Promise.resolve(null),
   ]);
+
+  // Se a fatura do ciclo atual ainda não começou (futura), mostra a anterior
+  // (aberta ou fechada mas não paga) que é a que o usuário precisa ver.
+  let faturaAtual = faturaAtualBruta;
+  if (faturaAtual) {
+    const hoje = todayIsoDate();
+    const statusAtual = statusFaturaPorPeriodo({ ...faturaAtual, status: faturaAtual.status ?? "aberta", total: faturaAtual.total }, hoje);
+    if (statusAtual === "futura") {
+      const mesAnterior = addMonthsYm(faturaAtual.mes_referencia, -1);
+      const faturaAnterior = await getFaturaCartao(contaId, mesAnterior);
+      if (faturaAnterior && faturaAnterior.status !== "paga") {
+        faturaAtual = faturaAnterior;
+      }
+    }
+  }
 
   const totalEmAberto = arredondarMoeda(Math.max(0, -saldo));
   const limite = conta.limite_credito;

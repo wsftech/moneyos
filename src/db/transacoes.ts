@@ -698,6 +698,21 @@ export async function deleteTransacao(id: number): Promise<void> {
     if (transacao.fatura_cartao_id) faturaIds.add(transacao.fatura_cartao_id);
     if (par?.fatura_cartao_id) faturaIds.add(par.fatura_cartao_id);
 
+    // Se a transação (ou seu par) é o pagamento de uma fatura, reverte o pagamento
+    // antes de excluir para não deixar a fatura com status "paga" e transacao_pagamento_id inválido.
+    const faturasPagamentoPorId: number[] = [];
+    for (const t of [transacao, par]) {
+      if (t?.pagamento_fatura_id) {
+        faturasPagamentoPorId.push(t.pagamento_fatura_id);
+      }
+    }
+    if (faturasPagamentoPorId.length > 0) {
+      const { reverterPagamentoFatura } = await import("./faturasCartao");
+      for (const faturaId of faturasPagamentoPorId) {
+        await reverterPagamentoFatura(faturaId);
+      }
+    }
+
     for (const t of [transacao, par]) {
       if (t?.anexo_path) {
         try {
