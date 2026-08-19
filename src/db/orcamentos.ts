@@ -601,21 +601,27 @@ async function getRealizadoOrcamento(
     let total = Number(rowsNaoCartao[0]?.total ?? 0);
 
     // 2) Despesas em cartão com categoria: filtradas pelo mes_competencia da fatura.
+    //    Usa LEFT JOIN para cobrir transações ainda sem fatura_cartao_id (não sincronizadas):
+    //    se a fatura existe, filtra por mes_competencia; senão, cai na data da compra.
     //    Para parceladas: conta apenas parcela_numero = 1.
     const rowsCartao = await db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(t.valor), 0) as total
        FROM transacoes t
        JOIN contas co ON CAST(co.id AS INTEGER) = CAST(t.conta_id AS INTEGER)
-       JOIN faturas_cartao fc ON fc.id = t.fatura_cartao_id
+       LEFT JOIN faturas_cartao fc ON fc.id = t.fatura_cartao_id
        WHERE t.status = 'efetivado'
          AND t.tipo = 'despesa'
          AND CAST(t.categoria_id AS INTEGER) = CAST($1 AS INTEGER)
          AND t.contexto = $2
          AND co.tipo = 'cartao_credito'
          AND (
-           CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
-                THEN substr(fc.periodo_inicio, 1, 7)
-                ELSE substr(fc.periodo_fim, 1, 7)
+           CASE
+             WHEN fc.id IS NOT NULL THEN
+               CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
+                    THEN substr(fc.periodo_inicio, 1, 7)
+                    ELSE substr(fc.periodo_fim, 1, 7)
+               END
+             ELSE substr(t.data, 1, 7)
            END
          ) = $3
          AND (t.parcela_total IS NULL OR t.parcela_total <= 1 OR t.parcela_numero = 1)`,
@@ -644,16 +650,20 @@ async function getGastoCartaoSemCategoriaNoEnvelope(
     `SELECT COALESCE(SUM(t.valor), 0) as total
      FROM transacoes t
      JOIN contas co ON CAST(co.id AS INTEGER) = CAST(t.conta_id AS INTEGER)
-     JOIN faturas_cartao fc ON fc.id = t.fatura_cartao_id
+     LEFT JOIN faturas_cartao fc ON fc.id = t.fatura_cartao_id
      WHERE t.status = 'efetivado'
        AND t.tipo = 'despesa'
        AND t.categoria_id IS NULL
        AND t.contexto = $1
        AND co.tipo = 'cartao_credito'
        AND (
-         CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
-              THEN substr(fc.periodo_inicio, 1, 7)
-              ELSE substr(fc.periodo_fim, 1, 7)
+         CASE
+           WHEN fc.id IS NOT NULL THEN
+             CASE WHEN CAST(substr(fc.periodo_fim, 9, 2) AS INTEGER) <= 15
+                  THEN substr(fc.periodo_inicio, 1, 7)
+                  ELSE substr(fc.periodo_fim, 1, 7)
+             END
+           ELSE substr(t.data, 1, 7)
          END
        ) = $2
        AND (t.parcela_total IS NULL OR t.parcela_total <= 1 OR t.parcela_numero = 1)`,
@@ -788,8 +798,12 @@ export async function getOrcamentosComProgresso(
   const { backfillCategoriasComprasCartao } = await import("./transacoes");
   const { sincronizarTransacoesRecorrentes } = await import("./transacoesRecorrentes");
   const { sincronizarLancamentosParcelamentos } = await import("./emprestimos");
+  const { sincronizarFaturasCartaoContexto } = await import("./faturasCartao");
   await sincronizarStatusContasPagarReceber();
   await backfillCategoriasComprasCartao();
+  // Garante que todas as compras de cartão tenham fatura_cartao_id preenchido,
+  // condição necessária para o cálculo do realizado por mes_competencia.
+  await sincronizarFaturasCartaoContexto(contexto);
   if (mesReferencia) {
     await sincronizarTransacoesRecorrentes(mesReferencia, contexto);
   }

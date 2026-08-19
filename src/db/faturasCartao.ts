@@ -240,6 +240,15 @@ export async function sincronizarFaturasCartaoConta(contaId: number): Promise<vo
   await run;
 }
 
+/** Sincroniza faturas de todos os cartões do contexto (usado pelo orçamento). */
+export async function sincronizarFaturasCartaoContexto(
+  contexto?: import("../types").ContextoVisualizacao,
+): Promise<void> {
+  const contas = await listContas(contexto);
+  const cartoes = contas.filter((c) => c.tipo === "cartao_credito" && c.dia_fechamento);
+  await Promise.all(cartoes.map((c) => sincronizarFaturasCartaoConta(c.id)));
+}
+
 /** Remove faturas sem compras e sem pagamento, exceto o ciclo aberto atual. */
 export async function limparFaturasVaziasConta(
   contaId: number,
